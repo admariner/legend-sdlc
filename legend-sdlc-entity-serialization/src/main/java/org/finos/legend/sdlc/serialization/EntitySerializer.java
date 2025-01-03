@@ -15,12 +15,19 @@
 package org.finos.legend.sdlc.serialization;
 
 import org.finos.legend.sdlc.domain.model.entity.Entity;
+import org.finos.legend.sdlc.tools.entity.EntityPaths;
 
+import java.io.BufferedOutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.OpenOption;
+import java.nio.file.Path;
+import java.util.Collections;
+import java.util.List;
 
 public interface EntitySerializer
 {
@@ -71,6 +78,77 @@ public interface EntitySerializer
         return stream.toByteArray();
     }
 
+    /**
+     * Serialize an entity to a file. The file is created relative to rootDirectory by using the entity's path to
+     * generate a file path (see {@link #filePathForEntity(Entity, Path)} for more details). Any directories that need
+     * to be created will be created.
+     *
+     * @param entity        entity to serialize
+     * @param rootDirectory root directory for entity serialization
+     * @param openOptions   options specifying how the file is to be opened
+     * @return the path the entity is written to
+     * @throws IOException if an I/O error occurs
+     */
+    default Path serializeToFile(Entity entity, Path rootDirectory, OpenOption... openOptions) throws IOException
+    {
+        return serializeToFile(entity, rootDirectory, getDefaultFileExtension(), openOptions);
+    }
+
+    /**
+     * Serialize an entity to a file. The file is created relative to rootDirectory by using the entity's path and
+     * fileExtension to generate a file path (see {@link #filePathForEntity(Entity, Path, String)} for more details).
+     * Any directories that need to be created will be created.
+     *
+     * @param entity        entity to serialize
+     * @param rootDirectory root directory for entity serialization
+     * @param fileExtension extension for the entity file
+     * @param openOptions   options specifying how the file is to be opened
+     * @return the path the entity is written to
+     * @throws IOException if an I/O error occurs
+     */
+    default Path serializeToFile(Entity entity, Path rootDirectory, String fileExtension, OpenOption... openOptions) throws IOException
+    {
+        Path filePath = filePathForEntity(entity, rootDirectory, fileExtension);
+        Files.createDirectories(filePath.getParent());
+        try (OutputStream stream = new BufferedOutputStream(Files.newOutputStream(filePath, openOptions)))
+        {
+            serialize(entity, stream);
+        }
+        return filePath;
+    }
+
+    /**
+     * Create a file path for an entity in a directory. The file will have the same name as the entity with the default
+     * file extension, and will be in a subdirectory based on the entity's package. For example, if the entity path is
+     * {@code "a::b::c::Name"}, the root directory is {@code target/entities}, and the default extension is
+     * {@code "json"}, then the file path will be {@code target/entities/a/b/c/Name.json}.
+     *
+     * @param entity        entity
+     * @param rootDirectory root directory for entity files
+     * @return file path for an entity
+     */
+    default Path filePathForEntity(Entity entity, Path rootDirectory)
+    {
+        return filePathForEntity(entity, rootDirectory, getDefaultFileExtension());
+    }
+
+    /**
+     * Create a file path for an entity in a directory. The file will have the same name as the entity with the given
+     * file extension, and will be in a subdirectory based on the entity's package. For example, if the entity path is
+     * {@code "a::b::c::Name"}, the root directory is {@code target/entities}, and the extension is {@code "json"}, then
+     * the file path will be {@code target/entities/a/b/c/Name.json}.
+     *
+     * @param entity        entity
+     * @param rootDirectory root directory for entity files
+     * @param extension     extension for the entity file
+     * @return file path for an entity
+     */
+    default Path filePathForEntity(Entity entity, Path rootDirectory, String extension)
+    {
+        String relativePath = entity.getPath().replace(EntityPaths.PACKAGE_SEPARATOR, rootDirectory.getFileSystem().getSeparator()) + ((extension == null) ? "" : ("." + extension));
+        return rootDirectory.resolve(relativePath);
+    }
+
     // Deserialization
 
     /**
@@ -92,5 +170,29 @@ public interface EntitySerializer
     default Entity deserialize(byte[] content) throws IOException
     {
         return deserialize(new ByteArrayInputStream(content));
+    }
+
+    /**
+     * Deserialize entities from an input stream.
+     *
+     * @param stream input stream
+     * @return deserialized entities
+     * @throws IOException if an I/O error occurs
+     */
+    default List<Entity> deserializeMany(InputStream stream) throws IOException
+    {
+        return Collections.singletonList(deserialize(stream));
+    }
+
+    /**
+     * Deserialize entities from a byte array.
+     *
+     * @param content input bytes
+     * @return deserialized entities
+     * @throws IOException if an I/O error occurs
+     */
+    default List<Entity> deserializeMany(byte[] content) throws IOException
+    {
+        return deserializeMany(new ByteArrayInputStream(content));
     }
 }

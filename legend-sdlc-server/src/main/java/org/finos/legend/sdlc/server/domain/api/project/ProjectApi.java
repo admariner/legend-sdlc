@@ -18,6 +18,10 @@ import org.finos.legend.sdlc.domain.model.project.Project;
 import org.finos.legend.sdlc.domain.model.project.ProjectType;
 import org.finos.legend.sdlc.domain.model.project.accessRole.AccessRole;
 import org.finos.legend.sdlc.domain.model.project.accessRole.AuthorizableProjectAction;
+import org.finos.legend.sdlc.domain.model.project.accessRole.UserPermission;
+import org.finos.legend.sdlc.domain.model.revision.Revision;
+import org.finos.legend.sdlc.server.domain.api.workspace.WorkspaceSpecification;
+import org.finos.legend.sdlc.server.gitlab.GitLabProjectId;
 
 import java.util.Collections;
 import java.util.List;
@@ -41,9 +45,11 @@ public interface ProjectApi
 
     List<Project> getProjects(boolean user, String search, Iterable<String> tags, Integer limit);
 
-    Project createProject(String name, String description, String groupId, String artifactId, Iterable<String> tags);
+    Project createProject(String name, String description, ProjectType type, String groupId, String artifactId, Iterable<String> tags);
 
     void deleteProject(String id);
+
+    Revision configureProjectInWorkspace(GitLabProjectId projectId, ProjectType type, String groupId, String artifactId, WorkspaceSpecification workspaceSpec);
 
     void changeProjectName(String id, String newName);
 
@@ -94,13 +100,7 @@ public interface ProjectApi
      */
     boolean checkUserAuthorizedAction(String id, AuthorizableProjectAction action);
 
-    @Deprecated
-    default ImportReport importProject(String id, ProjectType type, String groupId, String artifactId)
-    {
-        return this.importProject(id, groupId, artifactId);
-    }
-
-    ImportReport importProject(String id, String groupId, String artifactId);
+    ImportReport importProject(String id, ProjectType type, String groupId, String artifactId);
 
     interface ImportReport
     {
@@ -115,4 +115,14 @@ public interface ProjectApi
          */
         String getReviewId();
     }
+
+    /**
+     * Get a set of users who is permissioned to perform the desired action on the project
+     * Checks for each of the actions whether the user is authorized or not
+     *
+     * @param id      the project id
+     * @param actions list of actions to check if the user is authorized
+     * @return set of users with the action the user is able to perform each
+     */
+    Set<UserPermission> getAllUsersAuthorizedActions(String id, Set<AuthorizableProjectAction> actions);
 }

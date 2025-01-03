@@ -17,9 +17,11 @@ package org.finos.legend.sdlc.server.gitlab.api.server;
 import org.finos.legend.sdlc.server.error.LegendSDLCServerException;
 import org.finos.legend.sdlc.server.gitlab.GitLabConfiguration;
 import org.finos.legend.sdlc.server.gitlab.api.GitLabEntityApi;
+import org.finos.legend.sdlc.server.gitlab.api.GitLabPatchApi;
 import org.finos.legend.sdlc.server.gitlab.api.GitLabProjectApi;
 import org.finos.legend.sdlc.server.gitlab.api.GitLabReviewApi;
 import org.finos.legend.sdlc.server.gitlab.api.GitLabRevisionApi;
+import org.finos.legend.sdlc.server.gitlab.api.GitLabVersionApi;
 import org.finos.legend.sdlc.server.gitlab.api.GitLabWorkspaceApi;
 import org.finos.legend.sdlc.server.gitlab.api.GitLabWorkspaceApiTestResource;
 import org.finos.legend.sdlc.server.gitlab.auth.GitLabUserContext;
@@ -67,6 +69,24 @@ public class TestGitLabServerWorkspaceApis extends AbstractGitLabServerApiTest
         gitLabWorkspaceApiTestResource.runUpdateGroupWorkspaceWithRebaseNoConflictTest();
     }
 
+    @Test
+    public void testUserAndGroupWorkspaceNormalWorkflowForPatchReleaseVersion()
+    {
+        gitLabWorkspaceApiTestResource.runUserAndGroupWorkspaceNormalWorkflowTestForPatchReleaseVersion();
+    }
+
+    @Test
+    public void testUpdateUserWorkspaceWithRebaseNoConflictFlowForPatchReleaseVersion() throws GitLabApiException
+    {
+        gitLabWorkspaceApiTestResource.runUpdateUserWorkspaceWithRebaseNoConflictTestForPatchReleaseVersion();
+    }
+
+    @Test
+    public void testUpdateGroupWorkspaceWithRebaseNoConflictFlowForPatchReleaseVersion() throws GitLabApiException
+    {
+        gitLabWorkspaceApiTestResource.runUpdateGroupWorkspaceWithRebaseNoConflictTestForPatchReleaseVersion();
+    }
+
     /**
      * Authenticates with OAuth2 and instantiate the test resource.
      */
@@ -78,12 +98,15 @@ public class TestGitLabServerWorkspaceApis extends AbstractGitLabServerApiTest
         ProjectStructureConfiguration projectStructureConfig = ProjectStructureConfiguration.emptyConfiguration();
 
         GitLabProjectApi gitLabProjectApi = new GitLabProjectApi(gitLabConfig, gitLabOwnerUserContext, projectStructureConfig, null, backgroundTaskProcessor, null);
-        GitLabRevisionApi gitLabRevisionApi = new GitLabRevisionApi(gitLabConfig, gitLabMemberUserContext, backgroundTaskProcessor);
-        GitLabWorkspaceApi gitLabWorkspaceApi = new GitLabWorkspaceApi(gitLabConfig, gitLabMemberUserContext, gitLabRevisionApi, backgroundTaskProcessor);
-        GitLabEntityApi gitLabEntityApi = new GitLabEntityApi(gitLabConfig, gitLabMemberUserContext, backgroundTaskProcessor);
-        GitLabReviewApi gitLabCommitterReviewApi = new GitLabReviewApi(gitLabConfig, gitLabMemberUserContext);
-        GitLabReviewApi gitLabApproverReviewApi = new GitLabReviewApi(gitLabConfig, gitLabOwnerUserContext);
 
-        gitLabWorkspaceApiTestResource = new GitLabWorkspaceApiTestResource(gitLabWorkspaceApi, gitLabProjectApi, gitLabEntityApi, gitLabCommitterReviewApi, gitLabApproverReviewApi, gitLabMemberUserContext);
+        GitLabRevisionApi gitLabRevisionApi = new GitLabRevisionApi(gitLabConfig, gitLabMemberUserContext, backgroundTaskProcessor);
+        GitLabWorkspaceApi gitLabWorkspaceApi = new GitLabWorkspaceApi(gitLabConfig, gitLabMemberUserContext, gitLabProjectApi, gitLabRevisionApi, backgroundTaskProcessor);
+        GitLabEntityApi gitLabEntityApi = new GitLabEntityApi(gitLabConfig, gitLabMemberUserContext, backgroundTaskProcessor);
+        GitLabReviewApi gitLabCommitterReviewApi = new GitLabReviewApi(gitLabConfig, gitLabMemberUserContext, backgroundTaskProcessor);
+        GitLabReviewApi gitLabApproverReviewApi = new GitLabReviewApi(gitLabConfig, gitLabOwnerUserContext, backgroundTaskProcessor);
+        GitLabPatchApi gitLabPatchApi = new GitLabPatchApi(gitLabConfig, gitLabMemberUserContext, backgroundTaskProcessor);
+        GitLabVersionApi gitLabVersionApi = new GitLabVersionApi(gitLabConfig, gitLabMemberUserContext, backgroundTaskProcessor);
+
+        gitLabWorkspaceApiTestResource = new GitLabWorkspaceApiTestResource(gitLabWorkspaceApi, gitLabProjectApi, gitLabEntityApi, gitLabCommitterReviewApi, gitLabApproverReviewApi, gitLabMemberUserContext, gitLabRevisionApi, gitLabPatchApi, gitLabVersionApi);
     }
 }

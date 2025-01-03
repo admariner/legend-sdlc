@@ -19,8 +19,10 @@ import org.finos.legend.sdlc.server.gitlab.GitLabConfiguration;
 import org.finos.legend.sdlc.server.gitlab.api.GitLabComparisonApi;
 import org.finos.legend.sdlc.server.gitlab.api.GitLabComparisonApiTestResource;
 import org.finos.legend.sdlc.server.gitlab.api.GitLabEntityApi;
+import org.finos.legend.sdlc.server.gitlab.api.GitLabPatchApi;
 import org.finos.legend.sdlc.server.gitlab.api.GitLabProjectApi;
 import org.finos.legend.sdlc.server.gitlab.api.GitLabRevisionApi;
+import org.finos.legend.sdlc.server.gitlab.api.GitLabVersionApi;
 import org.finos.legend.sdlc.server.gitlab.api.GitLabWorkspaceApi;
 import org.finos.legend.sdlc.server.gitlab.auth.GitLabUserContext;
 import org.finos.legend.sdlc.server.project.config.ProjectStructureConfiguration;
@@ -73,10 +75,12 @@ public class TestGitLabServerComparisonApis extends AbstractGitLabServerApiTest
 
         GitLabProjectApi gitLabProjectApi = new GitLabProjectApi(gitLabConfig, gitLabOwnerUserContext, projectStructureConfig, null, backgroundTaskProcessor, null);
         GitLabRevisionApi gitLabRevisionApi = new GitLabRevisionApi(gitLabConfig, gitLabMemberUserContext, backgroundTaskProcessor);
-        GitLabWorkspaceApi gitLabWorkspaceApi = new GitLabWorkspaceApi(gitLabConfig, gitLabMemberUserContext, gitLabRevisionApi, backgroundTaskProcessor);
+        GitLabWorkspaceApi gitLabWorkspaceApi = new GitLabWorkspaceApi(gitLabConfig, gitLabMemberUserContext, gitLabProjectApi, gitLabRevisionApi, backgroundTaskProcessor);
         GitLabEntityApi gitLabEntityApi = new GitLabEntityApi(gitLabConfig, gitLabMemberUserContext, backgroundTaskProcessor);
-        GitLabComparisonApi gitLabComparisonApi = new GitLabComparisonApi(gitLabConfig, gitLabMemberUserContext, gitLabRevisionApi, backgroundTaskProcessor);
+        GitLabComparisonApi gitLabComparisonApi = new GitLabComparisonApi(gitLabConfig, gitLabMemberUserContext, backgroundTaskProcessor);
+        GitLabPatchApi gitLabPatchApi = new GitLabPatchApi(gitLabConfig, gitLabMemberUserContext, backgroundTaskProcessor);
+        GitLabVersionApi gitLabVersionApi = new GitLabVersionApi(gitLabConfig, gitLabMemberUserContext, backgroundTaskProcessor);
 
-        gitLabComparisonApiTestResource = new GitLabComparisonApiTestResource(gitLabWorkspaceApi, gitLabProjectApi, gitLabEntityApi, gitLabRevisionApi, gitLabComparisonApi);
+        gitLabComparisonApiTestResource = new GitLabComparisonApiTestResource(gitLabWorkspaceApi, gitLabProjectApi, gitLabEntityApi, gitLabRevisionApi, gitLabComparisonApi, gitLabPatchApi, gitLabVersionApi);
     }
 }

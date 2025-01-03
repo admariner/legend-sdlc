@@ -15,7 +15,6 @@
 package org.finos.legend.sdlc.server.gitlab.auth;
 
 import org.finos.legend.sdlc.server.auth.Session;
-import org.finos.legend.sdlc.server.gitlab.GitLabAppInfo;
 
 public interface GitLabSession extends Session
 {
@@ -26,4 +25,12 @@ public interface GitLabSession extends Session
     void clearGitLabToken();
 
     void setGitLabToken(GitLabToken token);
+
+    void setRefreshToken(String refreshToken);
+
+    String getRefreshToken();
+
+    void setTokenExpiry(long expiresInSecs);
+
+    boolean shouldRefreshToken();
 }

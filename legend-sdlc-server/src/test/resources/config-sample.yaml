@@ -19,11 +19,11 @@ sessionCookie: LEGEND_SDLC_JSESSIONID
 server:
   applicationConnectors:
     - type: http
-      port: 7070
+      port: 6100
       maxRequestHeaderSize: 128KiB
   adminConnectors:
     - type: http
-      port: 7076
+      port: 6101
   gzip:
     includedMethods:
       - GET
@@ -40,6 +40,10 @@ server:
         timeZone: UTC
   rootPath: /api
 
+#features:
+#  canCreateProject: true
+#  canCreateVersion: true
+
 filterPriorities:
   GitLab: 1
   org.pac4j.j2e.filter.CallbackFilter: 2
@@ -55,8 +59,14 @@ pac4j:
         secret: $APP_SECRET
         discoveryUri: https://$GITLAB_HOST/.well-known/openid-configuration
         scope: openid profile api
+#  hazelcastSession:
+#    enabled: true
+#    configFilePath: legend-sdlc-server/src/test/resources/hazelcast.yaml
   bypassPaths:
     - /api/info
+    - /api/server/info
+    - /api/server/platforms
+    - /api/auth/authorized
 
 gitLab:
   newProjectVisibility: public
@@ -73,6 +83,17 @@ gitLab:
 projectStructure:
   extensionProvider:
     org.finos.legend.sdlc.server.gitlab.finos.FinosGitlabProjectStructureExtensionProvider: {}
+  platforms:
+    legend-engine:
+      groupId: org.finos.legend.engine
+      platformVersion:
+        #version: 3.3.1
+        fromPackage: legend-engine-protocol-pure
+    legend-sdlc:
+      groupId: org.finos.legend.sdlc
+      platformVersion:
+        #version: 0.77.1
+        fromPackage: legend-sdlc-server
 
 logging:
   # Change this to affect library class logging

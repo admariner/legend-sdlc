@@ -17,7 +17,9 @@ package org.finos.legend.sdlc.entities;
 import org.eclipse.collections.api.factory.Sets;
 import org.eclipse.collections.impl.utility.Iterate;
 import org.finos.legend.sdlc.domain.model.entity.Entity;
+import org.finos.legend.sdlc.protocol.pure.v1.PureEntitySerializer;
 import org.finos.legend.sdlc.serialization.EntitySerializers;
+import org.finos.legend.sdlc.tools.entity.EntityPaths;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -40,7 +42,7 @@ public class TestEntityReserializer
     @Test
     public void testNonExistentSourceDirectory() throws IOException
     {
-        EntityReserializer reserializer = EntityReserializer.newReserializer(new PureDomainDeserializer(), EntitySerializers.getDefaultJsonSerializer());
+        EntityReserializer reserializer = EntityReserializer.newReserializer(new PureEntitySerializer(), EntitySerializers.getDefaultJsonSerializer());
         Path tempRoot = this.tempFolder.getRoot().toPath();
         Path sourceDir = tempRoot.resolve("source");
         Path targetDir = tempRoot.resolve("target");
@@ -56,7 +58,7 @@ public class TestEntityReserializer
     @Test
     public void testEmptySourceDirectory() throws IOException
     {
-        EntityReserializer reserializer = EntityReserializer.newReserializer(new PureDomainDeserializer(), EntitySerializers.getDefaultJsonSerializer());
+        EntityReserializer reserializer = EntityReserializer.newReserializer(new PureEntitySerializer(), EntitySerializers.getDefaultJsonSerializer());
         Path sourceDir = this.tempFolder.newFolder("source").toPath();
         Path targetDir = this.tempFolder.getRoot().toPath().resolve("target");
         TestHelper.assertDirectoryEmpty(sourceDir);
@@ -71,7 +73,7 @@ public class TestEntityReserializer
     @Test
     public void testPureDomainDirectory() throws IOException
     {
-        EntityReserializer reserializer = EntityReserializer.newReserializer(new PureDomainDeserializer(), EntitySerializers.getDefaultJsonSerializer());
+        EntityReserializer reserializer = EntityReserializer.newReserializer(new PureEntitySerializer(), EntitySerializers.getDefaultJsonSerializer());
         Path sourceDir = TestHelper.getPathFromResource("simple-pure-model");
         Path targetDir = this.tempFolder.getRoot().toPath().resolve("target");
 
@@ -85,7 +87,7 @@ public class TestEntityReserializer
         Assert.assertTrue(Files.isDirectory(sourceDir));
         Assert.assertTrue(Files.isDirectory(targetDir));
         TestHelper.assertDirectoryTreeFilePaths(
-                Iterate.collect(expectedEntities.keySet(), p -> Paths.get("entities" + targetDir.getFileSystem().getSeparator() + p.replace("::", targetDir.getFileSystem().getSeparator()) + ".json"), Sets.mutable.empty()),
+                Iterate.collect(expectedEntities.keySet(), p -> Paths.get("entities" + targetDir.getFileSystem().getSeparator() + p.replace(EntityPaths.PACKAGE_SEPARATOR, targetDir.getFileSystem().getSeparator()) + ".json"), Sets.mutable.empty()),
                 targetDir);
 
         Map<String, Entity> actualEntities = TestHelper.loadEntities(targetDir);
@@ -95,14 +97,15 @@ public class TestEntityReserializer
     @Test
     public void testTargetFileAlreadyExists() throws IOException
     {
-        EntityReserializer reserializer = EntityReserializer.newReserializer(new PureDomainDeserializer(), EntitySerializers.getDefaultJsonSerializer());
-        Path sourceDir = TestHelper.getPathFromResource("simple-pure-model/model/domain/enums");
+        EntityReserializer reserializer = EntityReserializer.newReserializer(new PureEntitySerializer(), EntitySerializers.getDefaultJsonSerializer());
+        Path sourceDir = TestHelper.getPathFromResource("simple-pure-model");
+        Path toFilterPath = TestHelper.getPathFromResource("simple-pure-model/model/domain/enums");
         Path targetDir = this.tempFolder.getRoot().toPath().resolve("target");
 
         Assert.assertTrue(Files.isDirectory(sourceDir));
         Assert.assertTrue(Files.notExists(targetDir));
 
-        List<String> paths = reserializer.reserializeDirectoryTree(sourceDir, targetDir);
+        List<String> paths = reserializer.reserializeDirectoryTree(sourceDir, x -> x.startsWith(toFilterPath), targetDir);
         Assert.assertEquals(Collections.singletonList("model::domain::enums::AddressType"), paths);
 
         IOException e = Assert.assertThrows(IOException.class, () -> reserializer.reserializeDirectoryTree(sourceDir, targetDir));
@@ -112,9 +115,30 @@ public class TestEntityReserializer
     }
 
     @Test
+    public void testSourceFileDoesNotMatchEntityPath() throws IOException
+    {
+        EntityReserializer reserializer = EntityReserializer.newReserializer(new PureEntitySerializer(), EntitySerializers.getDefaultJsonSerializer());
+        Path sourceDir = TestHelper.getPathFromResource("simple-wrong-file-name/model/domain/classes");
+        Path targetDir = this.tempFolder.getRoot().toPath().resolve("target");
+
+        Assert.assertTrue(Files.isDirectory(sourceDir));
+        Assert.assertTrue(Files.notExists(targetDir));
+
+        // if we enforce one entity per file, the path needs to match file location
+        RuntimeException e = Assert.assertThrows(RuntimeException.class, () -> reserializer.reserializeDirectoryTree(sourceDir, null, targetDir, true));
+        Assert.assertEquals(
+                "Error deserializing entity from " + sourceDir.resolve(Paths.get("Firm.pure")) + ": Expected entity with path model::domain::classes::Firma to be located on " + sourceDir.resolve(Paths.get("model", "domain", "classes", "Firma.pure")),
+                e.getMessage());
+
+        // if we don't enforce, it will allow
+        List<String> paths = reserializer.reserializeDirectoryTree(sourceDir, null, targetDir, false);
+        Assert.assertEquals(Collections.singletonList("model::domain::classes::Firma"), paths);
+    }
+
+    @Test
     public void testMixedSourceDirectoryWithFiltering() throws IOException
     {
-        EntityReserializer pureReserializer = EntityReserializer.newReserializer(new PureDomainDeserializer(), EntitySerializers.getDefaultJsonSerializer());
+        EntityReserializer pureReserializer = EntityReserializer.newReserializer(new PureEntitySerializer(), EntitySerializers.getDefaultJsonSerializer());
         EntityReserializer jsonReserializer = EntityReserializer.newReserializer(EntitySerializers.getDefaultJsonSerializer(), EntitySerializers.getDefaultJsonSerializer());
 
         Path sourceDir = TestHelper.getPathFromResource("simple-mixed-model");
@@ -136,7 +160,7 @@ public class TestEntityReserializer
         Assert.assertTrue(Files.isDirectory(sourceDir));
         Assert.assertTrue(Files.isDirectory(targetDir));
         TestHelper.assertDirectoryTreeFilePaths(
-                Iterate.collect(expectedEntities.keySet(), p -> Paths.get("entities" + targetDir.getFileSystem().getSeparator() + p.replace("::", targetDir.getFileSystem().getSeparator()) + ".json"), Sets.mutable.empty()),
+                Iterate.collect(expectedEntities.keySet(), p -> Paths.get("entities" + targetDir.getFileSystem().getSeparator() + p.replace(EntityPaths.PACKAGE_SEPARATOR, targetDir.getFileSystem().getSeparator()) + ".json"), Sets.mutable.empty()),
                 targetDir);
 
         Map<String, Entity> actualEntities = TestHelper.loadEntities(targetDir);
@@ -194,7 +218,7 @@ public class TestEntityReserializer
         Assert.assertFalse(noExtensionFilter2.test(jsonFile));
         Assert.assertTrue(noExtensionFilter2.test(fakeJsonFile));
 
-        Predicate<Path> defaultFilter = EntityReserializer.newReserializer(new PureDomainDeserializer(), EntitySerializers.getDefaultJsonSerializer()).getDefaultExtensionFilter();
+        Predicate<Path> defaultFilter = EntityReserializer.newReserializer(new PureEntitySerializer(), EntitySerializers.getDefaultJsonSerializer()).getDefaultExtensionFilter();
         Assert.assertTrue(defaultFilter.test(pureFile));
         Assert.assertFalse(defaultFilter.test(fakePureFile));
         Assert.assertFalse(defaultFilter.test(textFile));

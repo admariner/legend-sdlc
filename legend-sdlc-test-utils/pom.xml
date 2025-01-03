@@ -19,13 +19,26 @@
     <parent>
         <groupId>org.finos.legend.sdlc</groupId>
         <artifactId>legend-sdlc</artifactId>
-        <version>0.76.1-SNAPSHOT</version>
+        <version>0.179.1-SNAPSHOT</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
     <artifactId>legend-sdlc-test-utils</artifactId>
     <name>Legend SDLC Test Utils</name>
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <configuration>
+                    <rules>
+                        <bannedDependencies>
+                            <includes combine.children="append">
+                                <include>org.slf4j:jcl-over-slf4j:${slf4j.version}</include>
+                            </includes>
+                        </bannedDependencies>
+                    </rules>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
@@ -53,10 +66,26 @@
             <groupId>org.finos.legend.sdlc</groupId>
             <artifactId>legend-sdlc-language-pure-compiler</artifactId>
         </dependency>
+        <!-- SDLC -->
+
+        <!-- PURE-->
         <dependency>
-            <groupId>org.finos.legend.sdlc</groupId>
-            <artifactId>legend-sdlc-protocol-pure</artifactId>
+            <groupId>org.finos.legend.pure</groupId>
+            <artifactId>legend-pure-m3-core</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-pure-code-compiled-core</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.finos.legend.pure</groupId>
+                    <artifactId>legend-pure-code-compiled-platform-java</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- PURE-->
+
+        <!-- ENGINE -->
         <dependency>
             <groupId>org.finos.legend.engine</groupId>
             <artifactId>legend-engine-test-runner-shared</artifactId>
@@ -73,11 +102,11 @@
         </dependency>
         <dependency>
             <groupId>org.finos.legend.engine</groupId>
-            <artifactId>legend-engine-language-pure-dsl-service</artifactId>
+            <artifactId>legend-engine-pure-code-core-extension</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.finos.legend.pure</groupId>
-            <artifactId>legend-pure-runtime-java-engine-compiled</artifactId>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-language-pure-dsl-service</artifactId>
         </dependency>
         <dependency>
             <groupId>org.finos.legend.engine</groupId>
@@ -93,33 +122,6 @@
                 </exclusion>
             </exclusions>
         </dependency>
-        <!-- SDLC -->
-        <!-- PURE-->
-        <dependency>
-            <groupId>org.finos.legend.pure</groupId>
-            <artifactId>legend-pure-m3-core</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.finos.legend.pure</groupId>
-            <artifactId>legend-pure-runtime-java-extension-external-json</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.finos.legend.pure</groupId>
-            <artifactId>legend-pure-code-compiled-core</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.finos.legend.pure</groupId>
-                    <artifactId>legend-pure-code-compiled-platform-java</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>org.finos.legend.pure</groupId>
-            <artifactId>legend-pure-m2-dsl-mapping</artifactId>
-        </dependency>
-        <!-- PURE-->
-        <!-- ENGINE -->
         <dependency>
             <groupId>org.finos.legend.engine</groupId>
             <artifactId>legend-engine-language-pure-compiler</artifactId>
@@ -132,6 +134,10 @@
         </dependency>
         <dependency>
             <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-testable</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
             <artifactId>legend-engine-executionPlan-generation</artifactId>
         </dependency>
         <dependency>
@@ -141,6 +147,11 @@
         <dependency>
             <groupId>org.finos.legend.engine</groupId>
             <artifactId>legend-engine-protocol-pure</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-pure-runtime-java-extension-compiled-functions-json</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <!-- ENGINE -->
 
@@ -165,10 +176,6 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-core</artifactId>
         </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-        </dependency>
         <!-- JACKSON -->
 
         <!-- JUNIT -->
@@ -177,14 +184,27 @@
             <artifactId>junit</artifactId>
             <scope>compile</scope> <!-- DO NOT CHANGE SCOPE -->
         </dependency>
+        <!-- JUNIT -->
+
+        <!-- TEST -->
         <dependency>
             <groupId>org.finos.legend.engine</groupId>
-            <artifactId>legend-engine-configuration</artifactId>
+            <artifactId>legend-engine-executionPlan-execution-store-inMemory</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.finos.legend.engine</groupId>
-            <artifactId>legend-engine-executionPlan-execution-store-inMemory</artifactId>
+            <artifactId>legend-engine-xt-serviceStore-grammar</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-xt-json-model</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-xt-json-runtime</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -192,6 +212,61 @@
             <artifactId>jetty-servlet</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- JUNIT -->
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-xt-javaPlatformBinding-pure</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-pure-platform-store-relational-java</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-xt-relationalStore-core-pure</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-xt-relationalStore-protocol</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-xt-relationalStore-grammar</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-xt-relationalStore-javaPlatformBinding-pure</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-xt-serviceStore-pure</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-xt-serviceStore-javaPlatformBinding-pure</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-xt-json-javaPlatformBinding-pure</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-configuration-contract-extension-pure</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-configuration-plan-generation-serialization</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- TEST -->
     </dependencies>
 </project>

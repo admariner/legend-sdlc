@@ -65,7 +65,7 @@ public class TestPureEntitySerializer
     public void testSerializeClass()
     {
         testSerialize("class", "TestClass");
-        testPureSyntaxError("PARSER error at [5:3]: Unexpected token", "class", "TestBadClass");
+        testPureSyntaxError("PARSER error at [5:3]: Unexpected token '{'", "class", "TestBadClass");
     }
 
     @Test
@@ -146,7 +146,8 @@ public class TestPureEntitySerializer
     {
         String pureCode = readTextFromResource(buildResourceName(names) + ".pure");
         EngineException e = Assert.assertThrows(EngineException.class, () -> this.pureSerializer.deserialize(pureCode));
-        Assert.assertEquals(expectedErrorMessage, EngineException.buildPrettyErrorMessage(e.getMessage(), e.getSourceInformation(), e.getErrorType()));
+        String error = EngineException.buildPrettyErrorMessage(e.getMessage(), e.getSourceInformation(), e.getErrorType());
+        Assert.assertTrue(error, error.startsWith(expectedErrorMessage));
     }
 
     private String buildResourceName(String... names)

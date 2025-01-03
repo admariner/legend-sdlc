@@ -17,25 +17,27 @@ package org.finos.legend.sdlc.server.project.maven;
 import org.apache.maven.model.Dependency;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
 import org.eclipse.collections.impl.utility.ListIterate;
-import org.finos.legend.sdlc.domain.model.version.VersionId;
 import org.finos.legend.sdlc.serialization.EntitySerializer;
-import org.finos.legend.sdlc.server.project.ProjectFileAccessProvider;
 import org.finos.legend.sdlc.server.project.ProjectStructure;
 
+import java.util.Arrays;
 import java.util.List;
-import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
 public class LegendEntityPluginMavenHelper extends AbstractLegendMavenPluginHelper
 {
-
     public LegendEntityPluginMavenHelper(String groupId, String artifactId, String version, List<Dependency> extensionsCollections)
     {
         super(groupId, artifactId, version, "compile", "process-entities", extensionsCollections);
     }
 
+    public LegendEntityPluginMavenHelper(String groupId, String artifactId, String version, Dependency... extensionsCollections)
+    {
+        this(groupId, artifactId, version, Arrays.asList(extensionsCollections));
+    }
+
     @Override
-    protected void configurePlugin(MavenProjectStructure projectStructure, BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider, Consumer<? super Xpp3Dom> configConsumer)
+    protected void configurePlugin(MavenProjectStructure projectStructure, Consumer<? super Xpp3Dom> configConsumer)
     {
         List<Xpp3Dom> sourceDirectories;
         if (projectStructure instanceof MultiModuleMavenProjectStructure)

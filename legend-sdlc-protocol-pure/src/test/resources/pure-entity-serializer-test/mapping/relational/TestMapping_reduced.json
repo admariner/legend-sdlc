@@ -183,7 +183,10 @@
             ]
           }
         ],
-        "enumeration": "model::domain::TestEnumeration",
+        "enumeration" : {
+          "path" : "model::domain::TestEnumeration",
+          "type" : "ENUMERATION"
+        },
         "id": "TestEnumerationMappingInt"
       },
       {
@@ -220,12 +223,16 @@
             ]
           }
         ],
-        "enumeration": "model::domain::TestEnumeration",
+        "enumeration" : {
+          "path" : "model::domain::TestEnumeration",
+          "type" : "ENUMERATION"
+        },
         "id": "TestEnumerationMappingString"
       }
     ],
     "includedMappings": [
       {
+        "_type": "mappingIncludeMapping",
         "includedMapping": "model::mapping::OtherMapping"
       }
     ],

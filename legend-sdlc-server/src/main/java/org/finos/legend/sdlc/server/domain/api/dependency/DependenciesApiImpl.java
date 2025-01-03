@@ -15,19 +15,23 @@
 package org.finos.legend.sdlc.server.domain.api.dependency;
 
 import org.eclipse.collections.api.factory.Sets;
+import org.eclipse.collections.api.set.MutableSet;
 import org.eclipse.collections.impl.utility.Iterate;
 import org.finos.legend.sdlc.domain.model.project.Project;
 import org.finos.legend.sdlc.domain.model.project.configuration.ProjectConfiguration;
 import org.finos.legend.sdlc.domain.model.project.configuration.ProjectDependency;
 import org.finos.legend.sdlc.domain.model.revision.Revision;
-import org.finos.legend.sdlc.domain.model.project.workspace.WorkspaceType;
+import org.finos.legend.sdlc.domain.model.version.VersionId;
 import org.finos.legend.sdlc.server.domain.api.project.ProjectApi;
 import org.finos.legend.sdlc.server.domain.api.project.ProjectConfigurationApi;
 import org.finos.legend.sdlc.server.domain.api.revision.RevisionApi;
+import org.finos.legend.sdlc.server.domain.api.project.source.SourceSpecification;
 
-import javax.inject.Inject;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.Set;
+import javax.inject.Inject;
 
 public class DependenciesApiImpl implements DependenciesApi
 {
@@ -44,23 +48,23 @@ public class DependenciesApiImpl implements DependenciesApi
     }
 
     @Override
-    public Set<ProjectDependency> getWorkspaceRevisionUpstreamProjects(String projectId, String workspaceId, WorkspaceType workspaceType, String revisionId, boolean transitive)
+    public Set<ProjectDependency> getWorkspaceRevisionUpstreamProjects(String projectId, SourceSpecification sourceSpecification, String revisionId, boolean transitive)
     {
-        ProjectConfiguration projectConfiguration = this.projectConfigurationApi.getWorkspaceRevisionProjectConfiguration(projectId, workspaceId, workspaceType, revisionId);
+        ProjectConfiguration projectConfiguration = this.projectConfigurationApi.getWorkspaceRevisionProjectConfiguration(projectId, sourceSpecification, revisionId);
         return searchUpstream(projectConfiguration, transitive);
     }
 
     @Override
-    public Set<ProjectDependency> getProjectRevisionUpstreamProjects(String projectId, String revisionId, boolean transitive)
+    public Set<ProjectDependency> getProjectRevisionUpstreamProjects(String projectId, VersionId patchReleaseVersionId, String revisionId, boolean transitive)
     {
-        ProjectConfiguration projectConfiguration = this.projectConfigurationApi.getProjectRevisionProjectConfiguration(projectId, revisionId);
+        ProjectConfiguration projectConfiguration = this.projectConfigurationApi.getProjectRevisionProjectConfiguration(projectId, patchReleaseVersionId, revisionId);
         return searchUpstream(projectConfiguration, transitive);
     }
 
     @Override
     public Set<ProjectDependency> getProjectVersionUpstreamProjects(String projectId, String versionId, boolean transitive)
     {
-        ProjectConfiguration projectConfiguration = this.projectConfigurationApi.getVersionProjectConfiguration(projectId, versionId);
+        ProjectConfiguration projectConfiguration = this.projectConfigurationApi.getProjectConfiguration(projectId, SourceSpecification.versionSourceSpecification(versionId), versionId);
         return searchUpstream(projectConfiguration, transitive);
     }
 
@@ -79,8 +83,8 @@ public class DependenciesApiImpl implements DependenciesApi
             String otherProjectId = otherProject.getProjectId();
             if (!projectId.equals(otherProjectId))
             {
-                Revision otherProjectRevision = this.revisionApi.getProjectRevisionContext(otherProjectId).getCurrentRevision();
-                ProjectConfiguration projectConfiguration = this.projectConfigurationApi.getProjectRevisionProjectConfiguration(otherProjectId, otherProjectRevision.getId());
+                Revision otherProjectRevision = this.revisionApi.getRevisionContext(otherProjectId, SourceSpecification.projectSourceSpecification()).getCurrentRevision();
+                ProjectConfiguration projectConfiguration = this.projectConfigurationApi.getProjectConfiguration(otherProjectId, SourceSpecification.projectSourceSpecification(), otherProjectRevision.getId());
                 if (Iterate.anySatisfy(projectConfiguration.getProjectDependencies(), d -> projectId.equals(d.getProjectId())))
                 {
                     results.add(new ProjectRevision(otherProject.getProjectId(), otherProjectRevision.getId()));
@@ -92,25 +96,22 @@ public class DependenciesApiImpl implements DependenciesApi
 
     private Set<ProjectDependency> searchUpstream(ProjectConfiguration rootProjectConfiguration, boolean transitive)
     {
-        return transitive ? searchUpstreamRecursive(rootProjectConfiguration) : Sets.mutable.withAll(rootProjectConfiguration.getProjectDependencies());
-    }
-
-    private Set<ProjectDependency> searchUpstreamRecursive(ProjectConfiguration rootProjectConfiguration)
-    {
-        Set<ProjectDependency> results = Sets.mutable.empty();
-        searchUpstreamRecursive(rootProjectConfiguration, results);
-        return results;
-    }
-
-    private void searchUpstreamRecursive(ProjectConfiguration projectConfig, Set<ProjectDependency> results)
-    {
-        for (ProjectDependency dependency : projectConfig.getProjectDependencies())
+        if (!transitive)
         {
+            return Sets.mutable.withAll(rootProjectConfiguration.getProjectDependencies());
+        }
+
+        Deque<ProjectDependency> deque = new ArrayDeque<>(rootProjectConfiguration.getProjectDependencies());
+        MutableSet<ProjectDependency> results = Sets.mutable.ofInitialCapacity(deque.size());
+        while (!deque.isEmpty())
+        {
+            ProjectDependency dependency = deque.pollFirst();
             if (results.add(dependency))
             {
-                ProjectConfiguration dependencyProjectConfig = this.projectConfigurationApi.getVersionProjectConfiguration(dependency.getProjectId(), dependency.getVersionId());
-                searchUpstreamRecursive(dependencyProjectConfig, results);
+                ProjectConfiguration dependencyProjectConfig = this.projectConfigurationApi.getProjectConfiguration(dependency.getProjectId(), SourceSpecification.versionSourceSpecification(dependency.getVersionId()));
+                deque.addAll(dependencyProjectConfig.getProjectDependencies());
             }
         }
+        return results;
     }
 }

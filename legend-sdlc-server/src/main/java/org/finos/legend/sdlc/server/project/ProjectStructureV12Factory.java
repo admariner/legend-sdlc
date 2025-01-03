@@ -15,7 +15,6 @@
 package org.finos.legend.sdlc.server.project;
 
 import org.apache.maven.model.Dependency;
-import org.apache.maven.model.Plugin;
 import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.factory.Maps;
 import org.eclipse.collections.api.list.ImmutableList;
@@ -23,7 +22,6 @@ import org.eclipse.collections.api.list.MutableList;
 import org.eclipse.collections.api.map.ImmutableMap;
 import org.finos.legend.sdlc.domain.model.project.configuration.ArtifactType;
 import org.finos.legend.sdlc.domain.model.project.configuration.ProjectConfiguration;
-import org.finos.legend.sdlc.domain.model.version.VersionId;
 import org.finos.legend.sdlc.serialization.EntitySerializer;
 import org.finos.legend.sdlc.serialization.EntitySerializers;
 import org.finos.legend.sdlc.server.project.extension.UpdateProjectStructureExtension;
@@ -41,8 +39,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
 import java.util.Set;
-import java.util.function.BiConsumer;
-import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -57,11 +53,14 @@ public class ProjectStructureV12Factory extends ProjectStructureVersionFactory
     @Override
     protected ProjectStructure createProjectStructure(ProjectConfiguration projectConfiguration, ProjectStructurePlatformExtensions projectStructurePlatformExtensions)
     {
-        return new ProjectStructureV12(projectConfiguration, projectStructurePlatformExtensions, this.getVersion());
+        return new ProjectStructureV12(projectConfiguration, projectStructurePlatformExtensions);
     }
 
     public static class ProjectStructureV12 extends MultiModuleMavenProjectStructure
     {
+        public static final String ENTITY_VALIDATION_TEST_FILE_PATH = "/src/test/java/org/finos/legend/sdlc/EntityValidationTest.java";
+        public static final String ENTITY_TEST_SUITE_FILE_PATH = "/src/test/java/org/finos/legend/sdlc/EntityTestSuite.java";
+
         private static final String ENTITIES_MODULE_NAME = "entities";
         private static final ImmutableList<String> ENTITY_SERIALIZERS = Lists.immutable.with("pure", "legend");
 
@@ -93,11 +92,11 @@ public class ProjectStructureV12Factory extends ProjectStructureVersionFactory
         private static final String DEFAULT_EXECUTION_EXTENSION_ARTIFACT_ID = "legend-engine-extensions-collection-execution";
         private static final String DEFAULT_SERIALIZER_EXTENSION_ARTIFACT_ID = "legend-sdlc-extensions-collection-entity-serializer";
 
-        private static final Map<String, ProjectStructureV12Factory.ProjectStructureV12.MavenCoordinates> DEFAULT_EXTENSIONS_COLLECTION =
-                Maps.immutable.with(GENERATION_EXTENSIONS_COLLECTION_KEY, new ProjectStructureV12Factory.ProjectStructureV12.MavenCoordinates(LEGEND_ENGINE_GROUP_ID, DEFAULT_GENERATION_EXTENSION_ARTIFACT_ID, LEGEND_ENGINE_PROPERTY_REFERENCE),
-                        EXECUTION_EXTENSIONS_COLLECTION_KEY, new ProjectStructureV12Factory.ProjectStructureV12.MavenCoordinates(LEGEND_ENGINE_GROUP_ID, DEFAULT_EXECUTION_EXTENSION_ARTIFACT_ID, LEGEND_ENGINE_PROPERTY_REFERENCE),
-                        SERIALIZER_EXTENSIONS_COLLECTION_KEY, new ProjectStructureV12Factory.ProjectStructureV12.MavenCoordinates(LEGEND_SDLC_GROUP_ID, DEFAULT_SERIALIZER_EXTENSION_ARTIFACT_ID, LEGEND_SDLC_PROPERTY_REFERENCE))
-                        .toMap();
+        private static final ImmutableMap<String, MavenCoordinates> DEFAULT_EXTENSIONS_COLLECTION = Maps.immutable.with(
+                GENERATION_EXTENSIONS_COLLECTION_KEY, new MavenCoordinates(LEGEND_ENGINE_GROUP_ID, DEFAULT_GENERATION_EXTENSION_ARTIFACT_ID, LEGEND_ENGINE_PROPERTY_REFERENCE),
+                EXECUTION_EXTENSIONS_COLLECTION_KEY, new MavenCoordinates(LEGEND_ENGINE_GROUP_ID, DEFAULT_EXECUTION_EXTENSION_ARTIFACT_ID, LEGEND_ENGINE_PROPERTY_REFERENCE),
+                SERIALIZER_EXTENSIONS_COLLECTION_KEY, new MavenCoordinates(LEGEND_SDLC_GROUP_ID, DEFAULT_SERIALIZER_EXTENSION_ARTIFACT_ID, LEGEND_SDLC_PROPERTY_REFERENCE)
+        );
 
         // Plugin Helpers
         private final LegendEntityPluginMavenHelper legendEntityPluginMavenHelper;
@@ -110,15 +109,12 @@ public class ProjectStructureV12Factory extends ProjectStructureVersionFactory
         private static final String LEGEND_PURE_GROUP_ID = "org.finos.legend.pure";
         private static final String LEGEND_PURE_CODE_JAVA_COMPILED_CORE = "legend-pure-code-java-compiled-core";
 
-        private final int version;
-
-        private ProjectStructureV12(ProjectConfiguration projectConfiguration, ProjectStructurePlatformExtensions projectStructurePlatformExtensions, int version)
+        private ProjectStructureV12(ProjectConfiguration projectConfiguration, ProjectStructurePlatformExtensions projectStructurePlatformExtensions)
         {
             super(projectConfiguration, ENTITIES_MODULE_NAME, getEntitySourceDirectories(projectConfiguration), OTHER_MODULES.castToMap(), false, projectStructurePlatformExtensions);
-            this.version = version;
             Dependency generationExtensionsCollection = getExtensionsCollectionDependency(GENERATION_EXTENSIONS_COLLECTION_KEY, true, false);
             Dependency serializerExtensionsCollection = getExtensionsCollectionDependency(SERIALIZER_EXTENSIONS_COLLECTION_KEY, true, false);
-            this.legendEntityPluginMavenHelper = new LegendEntityPluginMavenHelper(LEGEND_SDLC_GROUP_ID, "legend-sdlc-entity-maven-plugin", LEGEND_SDLC_PROPERTY_REFERENCE, Lists.immutable.with(generationExtensionsCollection, serializerExtensionsCollection).toList());
+            this.legendEntityPluginMavenHelper = new LegendEntityPluginMavenHelper(LEGEND_SDLC_GROUP_ID, "legend-sdlc-entity-maven-plugin", LEGEND_SDLC_PROPERTY_REFERENCE, generationExtensionsCollection, serializerExtensionsCollection);
             this.legendTestUtilsMavenHelper = new LegendTestUtilsMavenHelper(LEGEND_SDLC_GROUP_ID, "legend-sdlc-test-utils", LEGEND_SDLC_PROPERTY_REFERENCE);
             this.legendServiceExecutionGenerationPluginMavenHelper = new LegendServiceExecutionGenerationPluginMavenHelper(LEGEND_SDLC_GROUP_ID, "legend-sdlc-generation-service-maven-plugin", LEGEND_SDLC_PROPERTY_REFERENCE, generationExtensionsCollection);
             this.legendModelGenerationPluginMavenHelper = new LegendModelGenerationPluginMavenHelper(LEGEND_SDLC_GROUP_ID, "legend-sdlc-generation-model-maven-plugin", LEGEND_SDLC_PROPERTY_REFERENCE, generationExtensionsCollection);
@@ -127,13 +123,13 @@ public class ProjectStructureV12Factory extends ProjectStructureVersionFactory
 
         private Dependency getExtensionsCollectionDependency(String extensionName, boolean includeVersion, boolean scopeTest)
         {
-            Dependency dependency = this.getOverrideExtensionsCollectionDependency(extensionName, includeVersion, scopeTest);
+            Dependency dependency = getOverrideExtensionsCollectionDependency(extensionName, includeVersion, scopeTest);
             if (dependency == null)
             {
-                ProjectStructureV12Factory.ProjectStructureV12.MavenCoordinates mavenCoordinates = DEFAULT_EXTENSIONS_COLLECTION.get(extensionName);
-                String groupId = mavenCoordinates.groupId;
-                String artifactId = mavenCoordinates.artifactId;
-                String version = includeVersion ? mavenCoordinates.version : null;
+                MavenCoordinates mavenCoordinates = DEFAULT_EXTENSIONS_COLLECTION.get(extensionName);
+                String groupId = mavenCoordinates.getGroupId();
+                String artifactId = mavenCoordinates.getArtifactId();
+                String version = includeVersion ? mavenCoordinates.getVersion() : null;
                 return scopeTest ? newMavenTestDependency(groupId, artifactId, version) : newMavenDependency(groupId, artifactId, version);
             }
             return dependency;
@@ -141,13 +137,13 @@ public class ProjectStructureV12Factory extends ProjectStructureVersionFactory
 
         private Dependency getOverrideExtensionsCollectionDependency(String extensionName, boolean includeVersion, boolean scopeTest)
         {
-            if (this.getProjectStructureExtensions() != null && this.getProjectStructureExtensions().containsExtension(extensionName))
+            if (getProjectStructureExtensions() != null && getProjectStructureExtensions().containsExtension(extensionName))
             {
-                ProjectStructurePlatformExtensions.ExtensionsCollection extensionsCollection = this.getProjectStructureExtensions().getExtensionsCollection(extensionName);
-                ProjectStructurePlatformExtensions.Platform platform = this.getProjectStructureExtensions().getPlatform(extensionsCollection.getPlatform());
+                ProjectStructurePlatformExtensions.ExtensionsCollection extensionsCollection = getProjectStructureExtensions().getExtensionsCollection(extensionName);
+                ProjectStructurePlatformExtensions.Platform platform = getProjectStructureExtensions().getPlatform(extensionsCollection.getPlatform());
                 String groupId = platform.getGroupId();
                 String artifactId = extensionsCollection.getArtifactId();
-                String versionId = includeVersion ? this.getPlatformPropertyReference(platform.getName()) : null;
+                String versionId = includeVersion ? getPlatformPropertyReference(platform.getName()) : null;
                 return scopeTest ? newMavenTestDependency(groupId, artifactId, versionId) : newMavenDependency(groupId, artifactId, versionId);
             }
             return null;
@@ -166,10 +162,9 @@ public class ProjectStructureV12Factory extends ProjectStructureVersionFactory
         }
 
         @Override
-        public void collectUpdateProjectConfigurationOperations(ProjectStructure oldStructure, ProjectFileAccessProvider.FileAccessContext fileAccessContext, BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider, Consumer<ProjectFileOperation> operationConsumer)
+        protected void collectUpdateProjectConfigurationOperations(ProjectStructure oldStructure, ProjectFileAccessProvider.FileAccessContext fileAccessContext, Consumer<ProjectFileOperation> operationConsumer)
         {
-
-            super.collectUpdateProjectConfigurationOperations(oldStructure, fileAccessContext, versionFileAccessContextProvider, operationConsumer);
+            super.collectUpdateProjectConfigurationOperations(oldStructure, fileAccessContext, operationConsumer);
 
             String entitiesModuleName = getEntitiesModuleName();
             int oldVersion = oldStructure.getVersion();
@@ -213,6 +208,12 @@ public class ProjectStructureV12Factory extends ProjectStructureVersionFactory
                     break;
                 }
                 case 11:
+                {
+                    String oldEntitiesModuleName = ((MultiModuleMavenProjectStructure) oldStructure).getEntitiesModuleName();
+                    moveOrAddOrModifyModuleFile(oldStructure, oldEntitiesModuleName, ProjectStructureV11Factory.ProjectStructureV11.ENTITY_VALIDATION_TEST_FILE_PATH, entitiesModuleName, ENTITY_VALIDATION_TEST_FILE_PATH, entityValidationTestCode, fileAccessContext, operationConsumer);
+                    moveOrAddOrModifyModuleFile(oldStructure, oldEntitiesModuleName, ProjectStructureV11Factory.ProjectStructureV11.ENTITY_TEST_SUITE_FILE_PATH, entitiesModuleName, ENTITY_TEST_SUITE_FILE_PATH, entityTestSuiteCode, fileAccessContext, operationConsumer);
+                    break;
+                }
                 case 12:
                 {
                     String oldEntitiesModuleName = ((MultiModuleMavenProjectStructure) oldStructure).getEntitiesModuleName();
@@ -221,7 +222,9 @@ public class ProjectStructureV12Factory extends ProjectStructureVersionFactory
                     break;
                 }
                 default:
-                    break;
+                {
+                    // do nothing
+                }
             }
         }
 
@@ -254,18 +257,25 @@ public class ProjectStructureV12Factory extends ProjectStructureVersionFactory
         }
 
         @Override
-        protected void addMavenProjectProperties(BiConsumer<String, String> propertySetter)
+        protected void configureMavenProjectModel(MavenModelConfiguration configuration)
         {
-            super.addMavenProjectProperties(propertySetter);
-            propertySetter.accept(LEGEND_SDLC_PROPERTY, LEGEND_SDLC_VERSION);
-            propertySetter.accept(LEGEND_ENGINE_PROPERTY, LEGEND_ENGINE_VERSION);
-            if (this.getPlatforms() != null)
-            {
-                this.getPlatforms().forEach((platform) ->
-                {
-                    propertySetter.accept(this.getPlatformPropertyName(platform.getName()), platform.getPublicStructureVersion(this.version));
-                });
-            }
+            super.configureMavenProjectModel(configuration);
+
+            // Properties
+            configuration.setPropertyIfAbsent(LEGEND_SDLC_PROPERTY, LEGEND_SDLC_VERSION);
+            configuration.setPropertyIfAbsent(LEGEND_ENGINE_PROPERTY, LEGEND_ENGINE_VERSION);
+
+            // Dependency Management
+            configuration.addDependencyManagement(getLegendTestUtilsDependencyWithExclusion());
+            configuration.addDependencyManagement(getExtensionsCollectionDependency(GENERATION_EXTENSIONS_COLLECTION_KEY, true, false));
+            configuration.addDependencyManagement(getExtensionsCollectionDependency(EXECUTION_EXTENSIONS_COLLECTION_KEY, true, false));
+
+            // Plugin Management
+            configuration.addPluginManagement(legendEntityPluginMavenHelper.getPluginManagementPlugin(this));
+            configuration.addPluginManagement(legendModelGenerationPluginMavenHelper.getPluginManagementPlugin(this));
+            configuration.addPluginManagement(legendFileGenerationPluginMavenHelper.getPluginManagementPlugin(this));
+            configuration.addPluginManagement(legendServiceExecutionGenerationPluginMavenHelper.getPluginManagementPlugin(this));
+            configuration.addPluginManagement(new LegendVersionPackagePluginMavenHelper(LEGEND_SDLC_GROUP_ID, LEGEND_SDLC_VERSION_PLUGIN, LEGEND_SDLC_PROPERTY_REFERENCE, null, null).getPluginManagementPlugin(this));
         }
 
         private Dependency getLegendTestUtilsDependencyWithExclusion()
@@ -276,84 +286,77 @@ public class ProjectStructureV12Factory extends ProjectStructureVersionFactory
         }
 
         @Override
-        protected void addMavenProjectDependencyManagement(BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider, Consumer<Dependency> dependencyConsumer)
+        protected void configureEntitiesModule(MavenModelConfiguration configuration)
         {
-            super.addMavenProjectDependencyManagement(versionFileAccessContextProvider, dependencyConsumer);
-            dependencyConsumer.accept(getLegendTestUtilsDependencyWithExclusion());
-            dependencyConsumer.accept(getExtensionsCollectionDependency(GENERATION_EXTENSIONS_COLLECTION_KEY, true, false));
-            dependencyConsumer.accept(getExtensionsCollectionDependency(EXECUTION_EXTENSIONS_COLLECTION_KEY, true, false));
+            super.configureEntitiesModule(configuration);
+
+            // Dependencies
+            configuration.addDependency(this.legendTestUtilsMavenHelper.getDependency(false));
+            configuration.addDependency(getExtensionsCollectionDependency(GENERATION_EXTENSIONS_COLLECTION_KEY, false, true));
+            configuration.addDependency(getExtensionsCollectionDependency(EXECUTION_EXTENSIONS_COLLECTION_KEY, false, true));
+
+            // Plugins
+            configuration.addPlugin(this.legendEntityPluginMavenHelper.getPlugin(this));
+            configuration.addPlugin(this.legendModelGenerationPluginMavenHelper.getPlugin(this));
+            configuration.addPlugin(this.legendTestUtilsMavenHelper.getMavenSurefirePlugin(true));
         }
 
         @Override
-        protected void addMavenProjectPluginManagement(BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider, Consumer<Plugin> pluginConsumer)
+        protected void configureOtherModule(ArtifactType type, String name, MavenModelConfiguration configuration)
         {
-            super.addMavenProjectPluginManagement(versionFileAccessContextProvider, pluginConsumer);
-            pluginConsumer.accept(legendEntityPluginMavenHelper.getPluginManagementPlugin(this, versionFileAccessContextProvider));
-            pluginConsumer.accept(legendModelGenerationPluginMavenHelper.getPluginManagementPlugin(this, versionFileAccessContextProvider));
-            pluginConsumer.accept(legendFileGenerationPluginMavenHelper.getPluginManagementPlugin(this, versionFileAccessContextProvider));
-            pluginConsumer.accept(legendServiceExecutionGenerationPluginMavenHelper.getPluginManagementPlugin(this, versionFileAccessContextProvider));
-            pluginConsumer.accept(new LegendVersionPackagePluginMavenHelper(LEGEND_SDLC_GROUP_ID, LEGEND_SDLC_VERSION_PLUGIN, LEGEND_SDLC_PROPERTY_REFERENCE, null, null).getPluginManagementPlugin(this, versionFileAccessContextProvider));
+            switch (type)
+            {
+                case service_execution:
+                {
+                    configureServiceExecutionModule(configuration);
+                    break;
+                }
+                case file_generation:
+                {
+                    configureFileGenerationModule(configuration);
+                    break;
+                }
+                case versioned_entities:
+                {
+                    configureVersionedEntitiesModule(configuration);
+                    break;
+                }
+                default:
+                {
+                    // No configuration
+                }
+            }
         }
 
-        @Override
-        protected void addEntitiesModuleDependencies(BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider, Consumer<Dependency> dependencyConsumer)
+        public void configureServiceExecutionModule(MavenModelConfiguration configuration)
         {
-            super.addEntitiesModuleDependencies(versionFileAccessContextProvider, dependencyConsumer);
-            dependencyConsumer.accept(this.legendTestUtilsMavenHelper.getDependency(false));
-            dependencyConsumer.accept(getExtensionsCollectionDependency(GENERATION_EXTENSIONS_COLLECTION_KEY, false, true));
-            dependencyConsumer.accept(getExtensionsCollectionDependency(EXECUTION_EXTENSIONS_COLLECTION_KEY, false, true));
+            configuration.addPlugin(this.legendServiceExecutionGenerationPluginMavenHelper.getPlugin(this));
+            configuration.addPlugin(this.legendServiceExecutionGenerationPluginMavenHelper.getBuildHelperPlugin("3.0.0"));
+            configuration.addPlugin(this.legendServiceExecutionGenerationPluginMavenHelper.getShadePlugin());
+
+            configuration.addDependency(getExtensionsCollectionDependency(EXECUTION_EXTENSIONS_COLLECTION_KEY, false, false));
         }
 
-        @Override
-        protected void addEntitiesModulePlugins(BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider, Consumer<Plugin> pluginConsumer)
+        public void configureFileGenerationModule(MavenModelConfiguration configuration)
         {
-            super.addEntitiesModulePlugins(versionFileAccessContextProvider, pluginConsumer);
-            pluginConsumer.accept(this.legendEntityPluginMavenHelper.getPlugin(this, versionFileAccessContextProvider));
-//            check model dependency
-            pluginConsumer.accept(this.legendModelGenerationPluginMavenHelper.getPlugin(this, versionFileAccessContextProvider));
-            pluginConsumer.accept(this.legendTestUtilsMavenHelper.getMavenSurefirePlugin(true));
+            configuration.addPlugin(this.legendFileGenerationPluginMavenHelper.getPlugin(this));
         }
 
-        @ModuleConfig(artifactType = ArtifactType.service_execution, type = ModuleConfigType.PLUGINS)
-        public void addServiceExecutionModulePlugins(String name, BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider, Consumer<Plugin> pluginConsumer)
-        {
-            pluginConsumer.accept(this.legendServiceExecutionGenerationPluginMavenHelper.getPlugin(this, versionFileAccessContextProvider));
-            pluginConsumer.accept(this.legendServiceExecutionGenerationPluginMavenHelper.getBuildHelperPlugin("3.0.0"));
-            pluginConsumer.accept(this.legendServiceExecutionGenerationPluginMavenHelper.getShadePlugin());
-        }
-
-        @ModuleConfig(artifactType = ArtifactType.service_execution, type = ModuleConfigType.DEPENDENCIES)
-        public void addServiceExecutionDependencies(BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider, Consumer<Dependency> dependencyConsumer)
-        {
-            dependencyConsumer.accept(getExtensionsCollectionDependency(EXECUTION_EXTENSIONS_COLLECTION_KEY, false, false));
-        }
-
-        @ModuleConfig(artifactType = ArtifactType.file_generation, type = ModuleConfigType.PLUGINS)
-        public void addFileGenerationModulePlugins(String name, BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider, Consumer<Plugin> pluginConsumer)
-        {
-            pluginConsumer.accept(this.legendFileGenerationPluginMavenHelper.getPlugin(this, versionFileAccessContextProvider));
-        }
-
-        @ModuleConfig(artifactType = ArtifactType.versioned_entities, type = ModuleConfigType.PLUGINS)
-        public void addVersionPackageModulePlugins(String name, BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider, Consumer<Plugin> pluginConsumer)
+        public void configureVersionedEntitiesModule(MavenModelConfiguration configuration)
         {
             String entityInputDirectory = "${project.parent.basedir}/" + getModuleFullName(getEntitiesModuleName()) + "/target/classes";
-            pluginConsumer.accept(new LegendVersionPackagePluginMavenHelper(LEGEND_SDLC_GROUP_ID, LEGEND_SDLC_VERSION_PLUGIN, LEGEND_SDLC_PROPERTY_REFERENCE, Collections.singletonList(entityInputDirectory), null).getPlugin(this, versionFileAccessContextProvider));
+            configuration.addPlugin(new LegendVersionPackagePluginMavenHelper(LEGEND_SDLC_GROUP_ID, LEGEND_SDLC_VERSION_PLUGIN, LEGEND_SDLC_PROPERTY_REFERENCE, Collections.singletonList(entityInputDirectory), null).getPlugin(this));
+
+            getProjectDependenciesAsMavenDependencies(ArtifactType.versioned_entities, true).forEach(configuration::addDependency);
         }
 
-        @ModuleConfig(artifactType = ArtifactType.versioned_entities, type = ModuleConfigType.DEPENDENCIES)
-        public void addVersionPackageModuleDependencies(BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider, Consumer<Dependency> dependencyConsumer)
-        {
-            getProjectDependenciesAsMavenDependencies(ArtifactType.versioned_entities, versionFileAccessContextProvider, true).forEach(dependencyConsumer);
-        }
-
-        // package private for testing
+        // public for testing
         public static String getEntityValidationTestCode()
         {
             return loadJavaTestCode(4, "EntityValidationTest");
         }
 
-        // package private for testing
+        // public for testing
         public static String getEntityTestSuiteCode()
         {
             return loadJavaTestCode(4, "EntityTestSuite");
@@ -364,36 +367,5 @@ public class ProjectStructureV12Factory extends ProjectStructureVersionFactory
             Map<String, EntitySerializer> serializers = EntitySerializers.getAvailableSerializersByName();
             return getDefaultEntitySourceDirectoriesForSerializers(projectConfiguration, ENTITIES_MODULE_NAME, ENTITY_SERIALIZERS.collectIf(serializers::containsKey, serializers::get).castToList());
         }
-
-        private static class MavenCoordinates
-        {
-            private String groupId;
-            private String artifactId;
-            private String version;
-
-
-            public MavenCoordinates(String groupdId, String artifactId, String version)
-            {
-                this.groupId = groupdId;
-                this.artifactId = artifactId;
-                this.version = version;
-            }
-
-            public String getArtifactId()
-            {
-                return artifactId;
-            }
-
-            public String getVersion()
-            {
-                return version;
-            }
-
-            public String getGroupId()
-            {
-                return groupId;
-            }
-        }
     }
-
 }
