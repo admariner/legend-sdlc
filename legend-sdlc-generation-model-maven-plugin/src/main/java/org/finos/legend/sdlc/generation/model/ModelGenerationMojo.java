@@ -26,8 +26,8 @@ import org.eclipse.collections.impl.utility.Iterate;
 import org.eclipse.collections.impl.utility.LazyIterate;
 import org.eclipse.collections.impl.utility.ListIterate;
 import org.finos.legend.engine.language.pure.compiler.toPureGraph.PureModel;
+import org.finos.legend.engine.protocol.pure.m3.PackageableElement;
 import org.finos.legend.engine.protocol.pure.v1.model.context.PureModelContextData;
-import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.PackageableElement;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.generationSpecification.GenerationSpecification;
 import org.finos.legend.sdlc.domain.model.entity.Entity;
 import org.finos.legend.sdlc.language.pure.compiler.toPureGraph.PureModelBuilder;
@@ -35,11 +35,10 @@ import org.finos.legend.sdlc.protocol.pure.v1.PureToEntityConverter;
 import org.finos.legend.sdlc.serialization.EntityLoader;
 import org.finos.legend.sdlc.serialization.EntitySerializer;
 import org.finos.legend.sdlc.serialization.EntitySerializers;
+import org.finos.legend.sdlc.tools.entity.EntityPaths;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -47,8 +46,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Mojo(name = "generate-model-generations", defaultPhase = LifecyclePhase.GENERATE_SOURCES)
@@ -150,17 +147,10 @@ public class ModelGenerationMojo extends AbstractMojo
         getLog().info(String.format("Serializing %,d entities to %s", entities.size(), this.outputDirectory));
         Path outputDirPath = this.outputDirectory.toPath();
         Path entitiesDir = outputDirPath.resolve("entities");
-        Pattern pkgSepPattern = Pattern.compile("::", Pattern.LITERAL);
-        String replacement = Matcher.quoteReplacement(outputDirPath.getFileSystem().getSeparator());
         EntitySerializer entitySerializer = EntitySerializers.getDefaultJsonSerializer();
         for (Entity entity : entities)
         {
-            Path entityFilePath = entitiesDir.resolve(pkgSepPattern.matcher(entity.getPath()).replaceAll(replacement) + "." + entitySerializer.getDefaultFileExtension());
-            Files.createDirectories(entityFilePath.getParent());
-            try (OutputStream stream = Files.newOutputStream(entityFilePath))
-            {
-                entitySerializer.serialize(entity, stream);
-            }
+            entitySerializer.serializeToFile(entity, entitiesDir);
         }
         getLog().info(String.format("Done serializing %,d entities to %s (%.9fs)", entities.size(), this.outputDirectory, (System.nanoTime() - serializeStart) / 1_000_000_000.0));
     }
@@ -249,7 +239,7 @@ public class ModelGenerationMojo extends AbstractMojo
             }
             else
             {
-                this.packages = Iterate.collectWith(packages, String::concat, "::", Lists.mutable.ofInitialCapacity(packages.size()))
+                this.packages = Iterate.collect(packages, p -> p + EntityPaths.PACKAGE_SEPARATOR, Lists.mutable.ofInitialCapacity(packages.size()))
                         .sortThis(Comparator.comparingInt(String::length).thenComparing(Comparator.naturalOrder()));
             }
         }

@@ -18,10 +18,10 @@ import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.list.MutableList;
 import org.eclipse.collections.impl.utility.ArrayIterate;
 import org.finos.legend.engine.protocol.Protocol;
+import org.finos.legend.engine.protocol.pure.m3.PackageableElement;
 import org.finos.legend.engine.protocol.pure.v1.model.context.PureModelContextData;
 import org.finos.legend.engine.protocol.pure.v1.model.context.PureModelContextPointer;
 import org.finos.legend.engine.protocol.pure.v1.model.context.SDLC;
-import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.PackageableElement;
 import org.finos.legend.sdlc.domain.model.entity.Entity;
 
 import java.util.Optional;
@@ -36,7 +36,7 @@ public class PureModelContextDataBuilder
 
     private PureModelContextDataBuilder(EntityToPureConverter converter)
     {
-        this.converter = converter;
+        this.converter = (converter == null) ? new EntityToPureConverter() : converter;
     }
 
     public int getElementCount()
@@ -192,7 +192,7 @@ public class PureModelContextDataBuilder
 
     public static PureModelContextDataBuilder newBuilder()
     {
-        return newBuilder(new EntityToPureConverter());
+        return newBuilder(null);
     }
 
     public static PureModelContextDataBuilder newBuilder(EntityToPureConverter converter)

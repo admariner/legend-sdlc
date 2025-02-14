@@ -16,11 +16,7 @@ package org.finos.legend.sdlc.server.project.maven;
 
 import org.apache.maven.model.Dependency;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
-import org.finos.legend.sdlc.domain.model.version.VersionId;
-import org.finos.legend.sdlc.server.project.ProjectFileAccessProvider;
 
-import java.util.Collections;
-import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
 public class LegendModelGenerationPluginMavenHelper extends AbstractLegendMavenPluginHelper
@@ -28,11 +24,11 @@ public class LegendModelGenerationPluginMavenHelper extends AbstractLegendMavenP
 
     public LegendModelGenerationPluginMavenHelper(String groupId, String artifactId, String version, Dependency generationExtensionsCollection)
     {
-        super(groupId, artifactId, version, "compile", "generate-model-generations", Collections.singletonList(generationExtensionsCollection));
+        super(groupId, artifactId, version, "compile", "generate-model-generations", generationExtensionsCollection);
     }
 
     @Override
-    protected void configurePlugin(MavenProjectStructure projectStructure, BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider, Consumer<? super Xpp3Dom> configConsumer)
+    protected void configurePlugin(MavenProjectStructure projectStructure, Consumer<? super Xpp3Dom> configConsumer)
     {
         String inclusionDirectory;
         if (projectStructure instanceof MultiModuleMavenProjectStructure)
@@ -48,9 +44,9 @@ public class LegendModelGenerationPluginMavenHelper extends AbstractLegendMavenP
     }
 
     @Override
-    protected void addDependencies(MavenProjectStructure projectStructure, BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider, Consumer<? super Dependency> dependencyConsumer)
+    protected void addDependencies(MavenProjectStructure projectStructure, Consumer<? super Dependency> dependencyConsumer)
     {
-        super.addDependencies(projectStructure, versionFileAccessContextProvider, dependencyConsumer);
+        super.addDependencies(projectStructure, dependencyConsumer);
         if (projectStructure instanceof MultiModuleMavenProjectStructure)
         {
             MultiModuleMavenProjectStructure multiModuleProjectStructure = (MultiModuleMavenProjectStructure) projectStructure;

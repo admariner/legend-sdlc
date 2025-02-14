@@ -16,29 +16,27 @@ package org.finos.legend.sdlc.server.project;
 
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Plugin;
-import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.factory.Sets;
 import org.finos.legend.sdlc.domain.model.project.configuration.ArtifactType;
 import org.finos.legend.sdlc.server.project.ProjectStructureV11Factory.ProjectStructureV11;
 import org.finos.legend.sdlc.server.project.maven.LegendEntityPluginMavenHelper;
+import org.finos.legend.sdlc.server.project.maven.LegendFileGenerationPluginMavenHelper;
 import org.finos.legend.sdlc.server.project.maven.LegendModelGenerationPluginMavenHelper;
+import org.finos.legend.sdlc.server.project.maven.LegendServiceExecutionGenerationPluginMavenHelper;
 import org.finos.legend.sdlc.server.project.maven.MavenProjectStructure;
 import org.finos.legend.sdlc.server.project.maven.MultiModuleMavenProjectStructure;
-import org.finos.legend.sdlc.server.project.maven.LegendServiceExecutionGenerationPluginMavenHelper;
-import org.finos.legend.sdlc.server.project.maven.LegendFileGenerationPluginMavenHelper;
 import org.finos.legend.sdlc.server.project.maven.MultiModuleMavenProjectStructure.ModuleConfig;
 
+import java.util.Collections;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.Collections;
-import java.util.EnumMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 public class TestProjectStructureV11 extends TestMultiGenerationProjectStructure<ProjectStructureV11>
 {
-
     private Dependency getGenerationDependency()
     {
         return MavenProjectStructure.newMavenDependency("org.finos.legend.engine", "legend-engine-extensions-collection-generation", "${platform.legend-engine.version}");
@@ -100,7 +98,7 @@ public class TestProjectStructureV11 extends TestMultiGenerationProjectStructure
     {
         super.collectExpectedEntitiesModelDependencies(projectStructure, dependencyConsumer);
         dependencyConsumer.accept(LEGEND_TEST_UTILS_MAVEN_HELPER.getDependency(false));
-        Dependency executionDependency = projectStructure.newMavenDependency("org.finos.legend.engine", "legend-engine-extensions-collection-execution", null);
+        Dependency executionDependency = MavenProjectStructure.newMavenDependency("org.finos.legend.engine", "legend-engine-extensions-collection-execution", null);
         executionDependency.setScope("test");
         dependencyConsumer.accept(executionDependency);
         Dependency generationDependency = MavenProjectStructure.newMavenDependency("org.finos.legend.engine", "legend-engine-extensions-collection-generation", null);
@@ -113,8 +111,9 @@ public class TestProjectStructureV11 extends TestMultiGenerationProjectStructure
     protected void collectExpectedEntitiesModelPlugins(ProjectStructureV11 projectStructure, Consumer<Plugin> pluginConsumer)
     {
         super.collectExpectedEntitiesModelPlugins(projectStructure, pluginConsumer);
-        pluginConsumer.accept((new LegendEntityPluginMavenHelper("org.finos.legend.sdlc", "legend-sdlc-entity-maven-plugin","${platform.legend-sdlc.version}", Lists.immutable.with(getGenerationDependency(), getSerializerDependency()).toList())).getPlugin(projectStructure, this.fileAccessProvider::getFileAccessContext));
-        pluginConsumer.accept((new LegendModelGenerationPluginMavenHelper("org.finos.legend.sdlc", "legend-sdlc-generation-model-maven-plugin", "${platform.legend-sdlc.version}", getGenerationDependency())).getPlugin(projectStructure, this.fileAccessProvider::getFileAccessContext));
+        pluginConsumer.accept(LEGEND_TEST_UTILS_MAVEN_HELPER.getMavenSurefirePlugin(false));
+        pluginConsumer.accept(new LegendEntityPluginMavenHelper("org.finos.legend.sdlc", "legend-sdlc-entity-maven-plugin","${platform.legend-sdlc.version}", getGenerationDependency(), getSerializerDependency()).getPlugin(projectStructure));
+        pluginConsumer.accept(new LegendModelGenerationPluginMavenHelper("org.finos.legend.sdlc", "legend-sdlc-generation-model-maven-plugin", "${platform.legend-sdlc.version}", getGenerationDependency()).getPlugin(projectStructure));
     }
 
     @Override
@@ -128,7 +127,7 @@ public class TestProjectStructureV11 extends TestMultiGenerationProjectStructure
     @ModuleConfig(artifactType = ArtifactType.service_execution, type = MultiModuleMavenProjectStructure.ModuleConfigType.PLUGINS)
     protected void collectExpectedServiceExecutionModulePlugins(String name, ProjectStructureV11 projectStructure, Consumer<Plugin> pluginConsumer)
     {
-        pluginConsumer.accept(new LegendServiceExecutionGenerationPluginMavenHelper("org.finos.legend.sdlc", "legend-sdlc-generation-service-maven-plugin","${platform.legend-sdlc.version}", getGenerationDependency()).getPlugin(projectStructure, this.fileAccessProvider::getFileAccessContext));
+        pluginConsumer.accept(new LegendServiceExecutionGenerationPluginMavenHelper("org.finos.legend.sdlc", "legend-sdlc-generation-service-maven-plugin","${platform.legend-sdlc.version}", getGenerationDependency()).getPlugin(projectStructure));
         pluginConsumer.accept(new LegendServiceExecutionGenerationPluginMavenHelper("org.finos.legend.sdlc", "legend-sdlc-generation-service-maven-plugin","${platform.legend-sdlc.version}", getGenerationDependency()).getBuildHelperPlugin("3.0.0"));
     }
 
@@ -141,8 +140,7 @@ public class TestProjectStructureV11 extends TestMultiGenerationProjectStructure
     @ModuleConfig(artifactType = ArtifactType.file_generation, type = MultiModuleMavenProjectStructure.ModuleConfigType.PLUGINS)
     protected void collectExpectedFileGenerationModulePlugins(String name, ProjectStructureV11 projectStructure, Consumer<Plugin> pluginConsumer)
     {
-        pluginConsumer.accept((new LegendFileGenerationPluginMavenHelper("org.finos.legend.sdlc", "legend-sdlc-generation-file-maven-plugin","${platform.legend-sdlc.version}", getGenerationDependency())).getPlugin(projectStructure, this.fileAccessProvider::getFileAccessContext));
+        pluginConsumer.accept((new LegendFileGenerationPluginMavenHelper("org.finos.legend.sdlc", "legend-sdlc-generation-file-maven-plugin","${platform.legend-sdlc.version}", getGenerationDependency())).getPlugin(projectStructure));
     }
-
 }
 

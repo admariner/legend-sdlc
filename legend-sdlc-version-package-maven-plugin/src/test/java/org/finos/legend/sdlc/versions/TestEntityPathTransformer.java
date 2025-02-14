@@ -16,6 +16,7 @@ package org.finos.legend.sdlc.versions;
 
 import org.finos.legend.sdlc.domain.model.entity.Entity;
 import org.finos.legend.sdlc.serialization.EntityLoader;
+import org.finos.legend.sdlc.tools.entity.EntityPaths;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -38,9 +39,13 @@ public class TestEntityPathTransformer
     }
 
     @Test
-    public void testAddEntity()
+    public void testAddEntity() throws Exception
     {
-        List<Entity> entities = EntityLoader.newEntityLoader(getTestResourcesDirectory()).getAllEntities().collect(Collectors.toList());
+        List<Entity> entities;
+        try (EntityLoader entityLoader = EntityLoader.newEntityLoader(getTestResourcesDirectory()))
+        {
+            entities = entityLoader.getAllEntities().collect(Collectors.toList());
+        }
         Assert.assertFalse(entities.isEmpty());
 
         EntityPathTransformer transformer = EntityPathTransformer.newTransformer(Function.identity());
@@ -55,9 +60,13 @@ public class TestEntityPathTransformer
     }
 
     @Test
-    public void testAddEntities()
+    public void testAddEntities() throws Exception
     {
-        List<Entity> entities = EntityLoader.newEntityLoader(getTestResourcesDirectory()).getAllEntities().collect(Collectors.toList());
+        List<Entity> entities;
+        try (EntityLoader entityLoader = EntityLoader.newEntityLoader(getTestResourcesDirectory()))
+        {
+            entities = entityLoader.getAllEntities().collect(Collectors.toList());
+        }
         Assert.assertFalse(entities.isEmpty());
 
         EntityPathTransformer transformer = EntityPathTransformer.newTransformer(Function.identity());
@@ -69,22 +78,28 @@ public class TestEntityPathTransformer
     }
 
     @Test
-    public void testIdentityTransformation()
+    public void testIdentityTransformation() throws Exception
     {
-        EntityLoader entityLoader = EntityLoader.newEntityLoader(getTestResourcesDirectory());
-
-        EntityPathTransformer transformer = EntityPathTransformer.newTransformer(Function.identity());
-        transformer.addEntities(entityLoader.getAllEntities());
-        List<Entity> transformedEntities = transformer.transformEntities();
-        List<Entity> expectedEntities = entityLoader.getAllEntities().collect(Collectors.toList());
+        List<Entity> transformedEntities;
+        List<Entity> expectedEntities;
+        try (EntityLoader entityLoader = EntityLoader.newEntityLoader(getTestResourcesDirectory()))
+        {
+            EntityPathTransformer transformer = EntityPathTransformer.newTransformer(Function.identity());
+            transformer.addEntities(entityLoader.getAllEntities());
+            transformedEntities = transformer.transformEntities();
+            expectedEntities = entityLoader.getAllEntities().collect(Collectors.toList());
+        }
         EntityTransformationTestTools.assertEntitiesEquivalent(expectedEntities, transformedEntities);
     }
 
     @Test
-    public void testPrefixTransformation()
+    public void testPrefixTransformation() throws Exception
     {
-        EntityLoader entityLoader = EntityLoader.newEntityLoader(getTestResourcesDirectory());
-        List<Entity> entities = entityLoader.getAllEntities().collect(Collectors.toList());
+        List<Entity> entities;
+        try (EntityLoader entityLoader = EntityLoader.newEntityLoader(getTestResourcesDirectory()))
+        {
+            entities = entityLoader.getAllEntities().collect(Collectors.toList());
+        }
 
         String prefix = "test::v1_2_3::";
         EntityPathTransformer transformer = EntityPathTransformer.newTransformer(prefix::concat);
@@ -98,16 +113,19 @@ public class TestEntityPathTransformer
     @Test
     public void testReversePackageTransformation() throws Exception
     {
-        EntityLoader entityLoader = EntityLoader.newEntityLoader(getTestResourcesDirectory());
-        List<Entity> entities = entityLoader.getAllEntities().collect(Collectors.toList());
+        List<Entity> entities;
+        try (EntityLoader entityLoader = EntityLoader.newEntityLoader(getTestResourcesDirectory()))
+        {
+            entities = entityLoader.getAllEntities().collect(Collectors.toList());
+        }
 
         Function<String, String> pathTransform = p ->
         {
             StringBuilder newPath = new StringBuilder(p.length());
-            String[] elts = p.split("::");
+            String[] elts = p.split(EntityPaths.PACKAGE_SEPARATOR);
             for (int i = elts.length - 2; i >= 0; i--)
             {
-                newPath.append(elts[i]).append("::");
+                newPath.append(elts[i]).append(EntityPaths.PACKAGE_SEPARATOR);
             }
             return newPath.append(elts[elts.length - 1]).toString();
         };
@@ -122,41 +140,23 @@ public class TestEntityPathTransformer
     }
 
     @Test
-    public void testInvalidTransformation()
+    public void testInvalidTransformation() throws Exception
     {
-        EntityLoader entityLoader = EntityLoader.newEntityLoader(getTestResourcesDirectory());
-        Entity oneEntity = entityLoader.getAllEntities().findAny().get();
+        Entity oneEntity;
+        try (EntityLoader entityLoader = EntityLoader.newEntityLoader(getTestResourcesDirectory()))
+        {
+            oneEntity = entityLoader.getAllEntities().findAny().get();
+        }
 
         String invalidPrefix = "test::v1.2.3::";
-        try
-        {
-            EntityPathTransformer.newTransformer(invalidPrefix::concat).addEntity(oneEntity).transformEntities();
-            Assert.fail("expected exception");
-        }
-        catch (RuntimeException e)
-        {
-            Assert.assertEquals("Invalid transformation for \"" + oneEntity.getPath() + "\": \"" + invalidPrefix + oneEntity.getPath() + "\"", e.getMessage());
-        }
+        RuntimeException e1 = Assert.assertThrows(RuntimeException.class, () -> EntityPathTransformer.newTransformer(invalidPrefix::concat).addEntity(oneEntity).transformEntities());
+        Assert.assertEquals("Invalid transformation for \"" + oneEntity.getPath() + "\": \"" + invalidPrefix + oneEntity.getPath() + "\"", e1.getMessage());
 
-        try
-        {
-            EntityPathTransformer.newTransformer(s -> null).addEntity(oneEntity).transformEntities();
-            Assert.fail("expected exception");
-        }
-        catch (RuntimeException e)
-        {
-            Assert.assertEquals("Invalid transformation for \"" + oneEntity.getPath() + "\": null", e.getMessage());
-        }
+        RuntimeException e2 = Assert.assertThrows(RuntimeException.class, () -> EntityPathTransformer.newTransformer(s -> null).addEntity(oneEntity).transformEntities());
+        Assert.assertEquals("Invalid transformation for \"" + oneEntity.getPath() + "\": null", e2.getMessage());
 
-        try
-        {
-            EntityPathTransformer.newTransformer(s -> "null").addEntity(oneEntity).transformEntities();
-            Assert.fail("expected exception");
-        }
-        catch (RuntimeException e)
-        {
-            Assert.assertEquals("Invalid transformation for \"" + oneEntity.getPath() + "\": \"null\"", e.getMessage());
-        }
+        RuntimeException e3 = Assert.assertThrows(RuntimeException.class, () -> EntityPathTransformer.newTransformer(s -> "null").addEntity(oneEntity).transformEntities());
+        Assert.assertEquals("Invalid transformation for \"" + oneEntity.getPath() + "\": \"null\"", e3.getMessage());
     }
 
     private Path getTestResourcesDirectory()

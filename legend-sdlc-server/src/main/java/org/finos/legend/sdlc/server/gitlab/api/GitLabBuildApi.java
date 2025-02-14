@@ -21,6 +21,7 @@ import org.finos.legend.sdlc.domain.model.revision.RevisionAlias;
 import org.finos.legend.sdlc.domain.model.version.VersionId;
 import org.finos.legend.sdlc.server.domain.api.build.BuildAccessContext;
 import org.finos.legend.sdlc.server.domain.api.build.BuildApi;
+import org.finos.legend.sdlc.server.domain.api.project.source.SourceSpecification;
 import org.finos.legend.sdlc.server.error.LegendSDLCServerException;
 import org.finos.legend.sdlc.server.gitlab.GitLabConfiguration;
 import org.finos.legend.sdlc.server.gitlab.GitLabProjectId;
@@ -57,12 +58,13 @@ public class GitLabBuildApi extends GitLabApiWithFileAccess implements BuildApi
     public BuildAccessContext getProjectBuildAccessContext(String projectId)
     {
         LegendSDLCServerException.validateNonNull(projectId, "projectId may not be null");
+        GitLabProjectId gitLabProjectId = parseProjectId(projectId);
         return new GitLabBuildAccessContext(projectId)
         {
             @Override
             protected String getRef()
             {
-                return MASTER_BRANCH;
+                return getDefaultBranch(gitLabProjectId);
             }
 
             @Override
@@ -84,12 +86,13 @@ public class GitLabBuildApi extends GitLabApiWithFileAccess implements BuildApi
     {
         LegendSDLCServerException.validateNonNull(projectId, "projectId may not be null");
         LegendSDLCServerException.validateNonNull(workspaceId, "workspaceId may not be null");
+        GitLabProjectId gitLabProjectId = parseProjectId(projectId);
         return new GitLabBuildAccessContext(projectId)
         {
             @Override
             protected String getRef()
             {
-                return getBranchName(workspaceId, workspaceType, workspaceAccessType);
+                return getBranchName(gitLabProjectId, SourceSpecification.newSourceSpecification(workspaceId, workspaceType, workspaceAccessType));
             }
 
             @Override

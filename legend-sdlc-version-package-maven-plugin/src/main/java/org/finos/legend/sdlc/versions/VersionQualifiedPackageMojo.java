@@ -24,15 +24,13 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.project.MavenProject;
 import org.finos.legend.sdlc.domain.model.entity.Entity;
-import org.finos.legend.sdlc.domain.model.version.VersionId;
 import org.finos.legend.sdlc.serialization.EntityLoader;
 import org.finos.legend.sdlc.serialization.EntitySerializer;
 import org.finos.legend.sdlc.serialization.EntitySerializers;
+import org.finos.legend.sdlc.tools.entity.EntityPaths;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -121,7 +119,7 @@ public class VersionQualifiedPackageMojo extends AbstractMojo
                 throw new MojoFailureException("A non-empty version is required");
             }
         }
-        else if (!this.versionAlias.matches("^\\w++$"))
+        else if (!this.versionAlias.matches("\\w++"))
         {
             throw new MojoFailureException("Invalid version alias: \"" + this.versionAlias + "\"");
         }
@@ -210,17 +208,10 @@ public class VersionQualifiedPackageMojo extends AbstractMojo
         getLog().info(String.format("Serializing %,d entities to %s", entities.size(), this.outputDirectory));
         Path outputDirPath = this.outputDirectory.toPath();
         Path entitiesDir = outputDirPath.resolve("entities");
-        Pattern pkgSepPattern = Pattern.compile("::", Pattern.LITERAL);
-        String replacement = Matcher.quoteReplacement(outputDirPath.getFileSystem().getSeparator());
         EntitySerializer entitySerializer = EntitySerializers.getDefaultJsonSerializer();
         for (Entity entity : entities)
         {
-            Path entityFilePath = entitiesDir.resolve(pkgSepPattern.matcher(entity.getPath()).replaceAll(replacement) + "." + entitySerializer.getDefaultFileExtension());
-            Files.createDirectories(entityFilePath.getParent());
-            try (OutputStream stream = Files.newOutputStream(entityFilePath))
-            {
-                entitySerializer.serialize(entity, stream);
-            }
+            entitySerializer.serializeToFile(entity, entitiesDir);
         }
         getLog().info(String.format("Done serializing %,d entities to %s (%.9fs)", entities.size(), this.outputDirectory, (System.nanoTime() - serializeStart) / 1_000_000_000.0));
     }
@@ -296,7 +287,7 @@ public class VersionQualifiedPackageMojo extends AbstractMojo
                 Object name = map.get("name");
                 if (name instanceof String)
                 {
-                    String path = pkg + "::" + name;
+                    String path = pkg + EntityPaths.PACKAGE_SEPARATOR + name;
                     pathConsumer.accept(path);
                 }
             }
@@ -308,20 +299,15 @@ public class VersionQualifiedPackageMojo extends AbstractMojo
         }
     }
 
-    private static String getPackagePrefix(String groupId, String artifactId, String version)
-    {
-        return getPackagePrefix(groupId, artifactId, version, null);
-    }
-
     private static String getPackagePrefix(String groupId, String artifactId, String version, String versionAlias)
     {
         StringBuilder builder = new StringBuilder(groupId.length() + artifactId.length() + ((versionAlias == null) ? version : versionAlias).length() + 16);
 
         // groupId
-        appendGroupIdPackage(builder, groupId).append("::");
+        appendGroupIdPackage(builder, groupId).append(EntityPaths.PACKAGE_SEPARATOR);
 
         // artifactId
-        appendArtifactIdPackage(builder, artifactId).append("::");
+        appendArtifactIdPackage(builder, artifactId).append(EntityPaths.PACKAGE_SEPARATOR);
 
         // version/versionAlias
         if (versionAlias == null)
@@ -332,7 +318,7 @@ public class VersionQualifiedPackageMojo extends AbstractMojo
         {
             builder.append(versionAlias);
         }
-        builder.append("::");
+        builder.append(EntityPaths.PACKAGE_SEPARATOR);
 
         return builder.toString();
     }
@@ -342,7 +328,7 @@ public class VersionQualifiedPackageMojo extends AbstractMojo
         int start = 0;
         for (int end = groupId.indexOf('.'); end != -1; start = end + 1, end = groupId.indexOf('.', start))
         {
-            builder.append(groupId, start, end).append("::");
+            builder.append(groupId, start, end).append(EntityPaths.PACKAGE_SEPARATOR);
         }
         return builder.append(groupId, start, groupId.length());
     }
@@ -362,26 +348,9 @@ public class VersionQualifiedPackageMojo extends AbstractMojo
 
     private static StringBuilder appendVersionPackage(StringBuilder builder, String version)
     {
-        VersionId versionId;
-        try
-        {
-            versionId = VersionId.parseVersionId(version);
-        }
-        catch (IllegalArgumentException ignore)
-        {
-            versionId = null;
-        }
-
-        if (versionId == null)
-        {
-            builder.append("vX_X_X");
-        }
-        else
-        {
-            builder.append('v');
-            versionId.appendVersionIdString(builder, '_');
-        }
-        return builder;
+        return version.matches("\\d++(\\.\\d++)*+") ?
+                builder.append('v').append(version.replace('.', '_')) :
+                builder.append("vX_X_X");
     }
 
     private static boolean isValidPackageNameCharacter(char c)

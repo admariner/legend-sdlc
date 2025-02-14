@@ -15,16 +15,20 @@
 package org.finos.legend.sdlc.protocol;
 
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import org.finos.legend.engine.protocol.pure.m3.PackageableElement;
+import org.finos.legend.engine.protocol.pure.m3.relationship.Association;
+import org.finos.legend.engine.protocol.pure.m3.type.Class;
 import org.finos.legend.engine.protocol.pure.v1.PureProtocolObjectMapperFactory;
-import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.PackageableElement;
-import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.domain.Association;
-import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.domain.Class;
+import org.finos.legend.engine.protocol.pure.v1.model.context.PackageableElementPointer;
 import org.finos.legend.sdlc.domain.model.entity.Entity;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class TestProtocolToEntityConverter
 {
@@ -35,21 +39,14 @@ public class TestProtocolToEntityConverter
     {
         PermissiveClassToEntityConverter converter = new PermissiveClassToEntityConverter();
         Class cls = new Class();
-        cls.superTypes = Collections.singletonList("meta::pure::metamodel::type::Any");
+        cls.superTypes = Collections.singletonList(new PackageableElementPointer("meta::pure::metamodel::type::Any"));
         cls.name = "EmptyClass";
         cls._package = "model::test";
         Entity entity = converter.toEntity(cls);
         assertEntityEqualsClass(cls, entity);
 
-        try
-        {
-            converter.toEntity(new Association());
-            Assert.fail();
-        }
-        catch (IllegalArgumentException e)
-        {
-            Assert.assertEquals("Could not convert instance of " + Association.class.getName() + " to Entity: no appropriate classifier found", e.getMessage());
-        }
+        IllegalArgumentException e = Assert.assertThrows(IllegalArgumentException.class, () -> converter.toEntity(new Association()));
+        Assert.assertEquals("Could not convert instance of " + Association.class.getName() + " to Entity: no appropriate classifier found", e.getMessage());
     }
 
     @Test
@@ -57,7 +54,7 @@ public class TestProtocolToEntityConverter
     {
         PermissiveClassToEntityConverter converter = new PermissiveClassToEntityConverter();
         Class cls = new Class();
-        cls.superTypes = Collections.singletonList("meta::pure::metamodel::type::Any");
+        cls.superTypes = Collections.singletonList(new PackageableElementPointer("meta::pure::metamodel::type::Any"));
         cls.name = "EmptyClass";
         cls._package = "model::test";
         Optional<Entity> entity = converter.toEntityIfPossible(cls);
@@ -89,7 +86,7 @@ public class TestProtocolToEntityConverter
         }
     }
 
-    public static void assertEntityEqualsClass(org.finos.legend.engine.protocol.pure.v1.model.packageableElement.domain.Class cls, Entity entity)
+    public static void assertEntityEqualsClass(Class cls, Entity entity)
     {
         Assert.assertNotNull(entity);
         Assert.assertEquals(CLASS_CLASSIFIER_PATH, entity.getClassifierPath());
@@ -98,7 +95,6 @@ public class TestProtocolToEntityConverter
         Assert.assertEquals(cls.name, entity.getContent().get("name"));
         Assert.assertEquals(cls._package, entity.getContent().get("package"));
         Assert.assertEquals(cls.properties, entity.getContent().get("properties"));
-        Assert.assertEquals(cls.superTypes, entity.getContent().get("superTypes"));
+        Assert.assertEquals(cls.superTypes.stream().map(x -> x.path).collect(Collectors.toList()),  ((ArrayList<Map<String, ?>>) entity.getContent().get("superTypes")).stream().map(e -> e.get("path")).collect(Collectors.toList()));
     }
 }
-

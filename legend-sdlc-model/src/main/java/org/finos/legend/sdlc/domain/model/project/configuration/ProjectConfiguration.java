@@ -16,16 +16,24 @@ package org.finos.legend.sdlc.domain.model.project.configuration;
 
 import org.finos.legend.sdlc.domain.model.project.ProjectType;
 
+import java.util.Collections;
 import java.util.List;
 
 public interface ProjectConfiguration
 {
     String getProjectId();
 
-    @Deprecated
-    ProjectType getProjectType();
+    default ProjectType getProjectType()
+    {
+        return null;
+    }
 
     ProjectStructureVersion getProjectStructureVersion();
+
+    default List<PlatformConfiguration> getPlatformConfigurations()
+    {
+        return null;
+    }
 
     String getGroupId();
 
@@ -35,5 +43,14 @@ public interface ProjectConfiguration
 
     List<MetamodelDependency> getMetamodelDependencies();
 
-    List<ArtifactGeneration> getArtifactGenerations();
+    default Boolean getRunDependencyTests()
+    {
+        return null;
+    }
+
+    @Deprecated
+    default List<ArtifactGeneration> getArtifactGenerations()
+    {
+        return Collections.emptyList();
+    }
 }

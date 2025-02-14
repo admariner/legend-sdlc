@@ -15,10 +15,12 @@
 package org.finos.legend.sdlc.domain.model;
 
 import org.finos.legend.sdlc.domain.model.entity.Entity;
+import org.finos.legend.sdlc.tools.entity.EntityPaths;
 import org.junit.Assert;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +38,11 @@ public class TestTools
     public static <T extends Comparable<? super T>> void assertCompareTo(int expected, T obj1, T obj2)
     {
         Assert.assertEquals(Integer.signum(expected), Integer.signum(obj1.compareTo(obj2)));
+    }
+
+    public static <T> void assertCompareTo(int expected, T obj1, T obj2, Comparator<? super T> comparator)
+    {
+        Assert.assertEquals(Integer.signum(expected), Integer.signum(comparator.compare(obj1, obj2)));
     }
 
     public static void assertEntitiesEquivalent(Entity expected, Entity actual)
@@ -142,12 +149,20 @@ public class TestTools
         content.put("name", name);
         content.put("package", pkg);
         content.put("properties", (properties == null) ? Collections.emptyList() : properties);
-        content.put("superTypes", ((superTypes == null) || superTypes.isEmpty()) ? Collections.singletonList(ANY) : superTypes);
+        content.put("superTypes", ((superTypes == null) || superTypes.isEmpty()) ? Collections.singletonList(newSuperType(ANY)) : superTypes.stream().map(TestTools::newSuperType).collect(Collectors.toList()));
         return Entity.newEntity(
-                pkg + "::" + name,
+                pkg + EntityPaths.PACKAGE_SEPARATOR + name,
                 "meta::pure::metamodel::type::Class",
                 content
         );
+    }
+
+    public static Map<String, String> newSuperType(String superType)
+    {
+        Map<String, String> content = new HashMap<>(2);
+        content.put("path", superType);
+        content.put("type", "CLASS");
+        return content;
     }
 
     public static Entity newEnumerationEntity(String name, String pkg, String... values)
@@ -158,7 +173,7 @@ public class TestTools
         content.put("package", pkg);
         content.put("values", (values == null) ? Collections.emptyList() : Arrays.stream(values).map(v -> Collections.singletonMap("value", v)).collect(Collectors.toList()));
         return Entity.newEntity(
-                pkg + "::" + name,
+                pkg + EntityPaths.PACKAGE_SEPARATOR + name,
                 "meta::pure::metamodel::type::Enumeration",
                 content
         );
@@ -168,8 +183,18 @@ public class TestTools
     {
         Map<String, Object> map = new HashMap<>(3);
         map.put("name", name);
-        map.put("type", type);
+        map.put("genericType", newGenericType(type));
         map.put("multiplicity", newMultiplicity(minMult, maxMult));
+        return map;
+    }
+
+    private static Map<String, ?> newGenericType(String type)
+    {
+        Map<String, Object> packMap = new HashMap<>(3);
+        packMap.put("_type", "packageableType");
+        packMap.put("fullPath", type);
+        Map<String, Object> map = new HashMap<>(3);
+        map.put("rawType", packMap);
         return map;
     }
 

@@ -20,7 +20,9 @@ import org.codehaus.plexus.util.xml.Xpp3Dom;
 import org.finos.legend.sdlc.domain.model.version.VersionId;
 import org.finos.legend.sdlc.server.project.ProjectFileAccessProvider;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
@@ -40,31 +42,50 @@ public abstract class AbstractLegendMavenPluginHelper
         this.version = version;
         this.phase = phase;
         this.goal = goal;
-        this.extensionsCollections = extensionsCollections;
+        this.extensionsCollections = Objects.requireNonNull(extensionsCollections);
     }
 
-    public final Plugin getPlugin(MavenProjectStructure projectStructure, BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider)
+    protected AbstractLegendMavenPluginHelper(String groupId, String artifactId, String version, String phase, String goal, Dependency extensionsCollection)
+    {
+        this(groupId, artifactId, version, phase, goal, Collections.singletonList(Objects.requireNonNull(extensionsCollection)));
+    }
+
+    protected AbstractLegendMavenPluginHelper(String groupId, String artifactId, String version, String phase, String goal)
+    {
+        this(groupId, artifactId, version, phase, goal, Collections.emptyList());
+    }
+
+    public final Plugin getPlugin(MavenProjectStructure projectStructure)
     {
         Plugin plugin = MavenPluginTools.newPlugin(this.groupId, this.artifactId, null);
         MavenPluginTools.addPluginExecution(plugin, this.phase, this.goal);
-        configurePlugin(projectStructure, versionFileAccessContextProvider, c -> MavenPluginTools.addConfiguration(plugin, c));
+        configurePlugin(projectStructure, c -> MavenPluginTools.addConfiguration(plugin, c));
         return plugin;
     }
 
-    public final Plugin getPluginManagementPlugin(MavenProjectStructure projectStructure, BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider)
+    public final Plugin getPluginManagementPlugin(MavenProjectStructure projectStructure)
     {
         Plugin plugin = MavenPluginTools.newPlugin(this.groupId, this.artifactId, this.version);
-        addDependencies(projectStructure, versionFileAccessContextProvider, plugin::addDependency);
+        addDependencies(projectStructure, plugin::addDependency);
         return plugin;
     }
 
-    protected abstract void configurePlugin(MavenProjectStructure projectStructure, BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider, Consumer<? super Xpp3Dom> configConsumer);
-
-    protected void addDependencies(MavenProjectStructure projectStructure, BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider, Consumer<? super Dependency> dependencyConsumer)
+    @Deprecated
+    public final Plugin getPlugin(MavenProjectStructure projectStructure, BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider)
     {
-        if (this.extensionsCollections != null && !this.extensionsCollections.isEmpty())
-        {
-            this.extensionsCollections.forEach(dependencyConsumer);
-        }
+        return getPlugin(projectStructure);
+    }
+
+    @Deprecated
+    public final Plugin getPluginManagementPlugin(MavenProjectStructure projectStructure, BiFunction<String, VersionId, ProjectFileAccessProvider.FileAccessContext> versionFileAccessContextProvider)
+    {
+        return getPluginManagementPlugin(projectStructure);
+    }
+
+    protected abstract void configurePlugin(MavenProjectStructure projectStructure, Consumer<? super Xpp3Dom> configConsumer);
+
+    protected void addDependencies(MavenProjectStructure projectStructure, Consumer<? super Dependency> dependencyConsumer)
+    {
+        this.extensionsCollections.forEach(dependencyConsumer);
     }
 }

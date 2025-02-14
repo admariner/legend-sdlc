@@ -17,26 +17,35 @@ package org.finos.legend.sdlc.generation.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.classgraph.ClassGraph;
+import org.eclipse.collections.api.factory.Lists;
+import org.eclipse.collections.api.factory.Sets;
 import org.eclipse.collections.impl.utility.Iterate;
+import org.eclipse.collections.impl.utility.LazyIterate;
 import org.finos.legend.engine.language.pure.compiler.toPureGraph.PureModel;
 import org.finos.legend.engine.language.pure.dsl.service.execution.AbstractServicePlanExecutor;
-import org.finos.legend.engine.language.pure.dsl.service.execution.ServiceVariable;
 import org.finos.legend.engine.language.pure.dsl.service.execution.ServiceRunner;
 import org.finos.legend.engine.language.pure.dsl.service.execution.ServiceRunnerInput;
+import org.finos.legend.engine.language.pure.dsl.service.execution.ServiceVariable;
 import org.finos.legend.engine.plan.execution.nodes.helpers.platform.JavaHelper;
 import org.finos.legend.engine.plan.execution.result.Result;
 import org.finos.legend.engine.plan.execution.result.json.JsonStreamingResult;
 import org.finos.legend.engine.plan.execution.result.serialization.SerializationFormat;
-import org.finos.legend.engine.plan.generation.transformers.LegendPlanTransformers;
+import org.finos.legend.engine.plan.generation.extension.PlanGeneratorExtension;
+import org.finos.legend.engine.plan.platform.java.JavaSourceHelper;
+import org.finos.legend.engine.protocol.pure.m3.PackageableElement;
+import org.finos.legend.engine.protocol.pure.m3.multiplicity.Multiplicity;
 import org.finos.legend.engine.protocol.pure.v1.model.context.PureModelContextData;
-import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.PackageableElement;
-import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.domain.Multiplicity;
+import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.service.PureExecution;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.service.Service;
+import org.finos.legend.engine.protocol.pure.v1.model.type.PackageableType;
+import org.finos.legend.engine.pure.code.core.LegendPureCoreExtension;
 import org.finos.legend.engine.shared.core.url.StreamProvider;
-import org.finos.legend.pure.generated.core_relational_relational_router_router_extension;
+import org.finos.legend.pure.m3.navigation.PrimitiveUtilities;
 import org.finos.legend.pure.runtime.java.compiled.compiler.MemoryFileManager;
+import org.finos.legend.pure.runtime.java.compiled.generation.orchestrator.VoidLog;
 import org.finos.legend.sdlc.language.pure.compiler.toPureGraph.PureModelBuilder;
 import org.finos.legend.sdlc.serialization.EntityLoader;
+import org.finos.legend.sdlc.tools.entity.EntityPaths;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
@@ -148,6 +157,33 @@ public class TestServiceExecutionGenerator
     }
 
     @Test
+    public void testSimpleServiceWithPureOneByteParam() throws Exception
+    {
+        String packagePrefix = "org.finos";
+        Service service = getService("service::ModelToModelServiceWithPureOneByteParam");
+        ClassLoader classLoader = generateAndCompile(packagePrefix, service);
+        assertExecuteMethods(classLoader, "org.finos.service.ModelToModelServiceWithPureOneByteParam", byte.class);
+    }
+
+    @Test
+    public void testSimpleServiceWithZeroOneByteParam() throws Exception
+    {
+        String packagePrefix = "org.finos";
+        Service service = getService("service::ModelToModelServiceWithZeroOneByteParam");
+        ClassLoader classLoader = generateAndCompile(packagePrefix, service);
+        assertExecuteMethods(classLoader, "org.finos.service.ModelToModelServiceWithZeroOneByteParam", Byte.class);
+    }
+
+    @Test
+    public void testSimpleServiceWithZeroManyByteParam() throws Exception
+    {
+        String packagePrefix = "org.finos";
+        Service service = getService("service::ModelToModelServiceWithZeroManyByteParam");
+        ClassLoader classLoader = generateAndCompile(packagePrefix, service);
+        assertExecuteMethods(classLoader, "org.finos.service.ModelToModelServiceWithZeroManyByteParam", InputStream.class);
+    }
+
+    @Test
     public void testSimpleMultiService() throws Exception
     {
         String packagePrefix = "org.finos";
@@ -172,6 +208,61 @@ public class TestServiceExecutionGenerator
         Service service = getService("service::RelationalServiceWithParams");
         ClassLoader classLoader = generateAndCompile(packagePrefix, service);
         assertExecuteMethods(classLoader, "org.finos.service.RelationalServiceWithParams", String.class, String.class);
+    }
+
+    @Test
+    public void testRelationalWithEnumParams() throws Exception
+    {
+        String packagePrefix = "org.finos";
+        Service enumParamService = getService("service::RelationalServiceWithEnumParams");
+        Service reusedEnumParamService = getService("service::RelationalServiceWithEnumParamsReused");
+        ClassLoader classLoader = generateAndCompile(packagePrefix, Lists.fixedSize.of(enumParamService, reusedEnumParamService));
+        assertExecuteMethods(classLoader, "org.finos.service.RelationalServiceWithEnumParams", classLoader.loadClass("org.finos.model.Country"), classLoader.loadClass("org.finos.model._enum.Country"), String.class);
+        assertExecuteMethods(classLoader, "org.finos.service.RelationalServiceWithEnumParamsReused", classLoader.loadClass("org.finos.model.Country"), classLoader.loadClass("org.finos.model._enum.Country"), String.class);
+    }
+
+    @Test
+    public void testRelationalWithNoExecutionParams() throws Exception
+    {
+        String packagePrefix = "org.finos";
+        Service enumParamService = getService("service::RelationalServiceWithNoExecutionParams");
+        ClassLoader classLoader = generateAndCompile(packagePrefix, Lists.fixedSize.of(enumParamService));
+        assertExecuteMethods(classLoader, "org.finos.service.RelationalServiceWithNoExecutionParams", String.class);
+    }
+
+    @Test
+    public void testEnumParamServiceExecutionUsingServiceRunnerAPI() throws Exception
+    {
+        Service service = getService("service::RelationalServiceWithEnumParams");
+        ClassLoader classLoader = generateAndCompile("org.finos", service);
+
+        Class<?> countryClass = classLoader.loadClass("org.finos.model.Country");
+        Object[] countryValues = countryClass.getEnumConstants();
+        Class<?> countryNameClass = classLoader.loadClass("org.finos.model._enum.Country");
+        Object[] countryNameValues = countryNameClass.getEnumConstants();
+
+        try (JavaHelper.ThreadContextClassLoaderScope ignored = JavaHelper.withCurrentThreadContextClassLoader(classLoader))
+        {
+            ServiceRunner multiParamServiceRunner = findServiceRunnerByPath("service::RelationalServiceWithEnumParams");
+            assertServiceVariables(multiParamServiceRunner,
+                    new ServiceVariable("cou", countryClass, new Multiplicity(0, 1)),
+                    new ServiceVariable("couName", countryNameClass, new Multiplicity(1, 1)),
+                    new ServiceVariable("name", String.class, new Multiplicity(1, 1))
+            );
+            IllegalArgumentException e1 = Assert.assertThrows(IllegalArgumentException.class, () -> multiParamServiceRunner.run(ServiceRunnerInput.newInstance()));
+            Assert.assertEquals("Unexpected number of parameters. Expected parameter size: 3, Passed parameter size: 0", e1.getMessage());
+
+            IllegalArgumentException e2 = Assert.assertThrows(IllegalArgumentException.class, () -> multiParamServiceRunner.run(ServiceRunnerInput.newInstance().withArgs(Arrays.asList(countryValues[0], countryValues[1]))));
+            Assert.assertEquals("Unexpected number of parameters. Expected parameter size: 3, Passed parameter size: 2", e2.getMessage());
+
+            List<Object> args1 = Arrays.asList(countryValues[0], "1", "John");
+            IllegalArgumentException e3 = Assert.assertThrows(IllegalArgumentException.class, () -> multiParamServiceRunner.run(ServiceRunnerInput.newInstance().withArgs(args1)));
+            Assert.assertEquals("Invalid provided parameter(s): [Invalid enum value 1 for model::enum::Country, valid enum values: [America, Europe, India]]", e3.getMessage());
+
+            JsonNode expected = OBJECT_MAPPER.readTree("{\"columns\":[{\"name\":\"Last Name\",\"type\":\"String\"},{\"name\":\"Country\",\"type\":\"String\"}],\"rows\":[{\"values\":[\"Johnson\",\"America\"]},{\"values\":[\"Peterson\",\"America\"]}]}");
+            Assert.assertEquals(expected, OBJECT_MAPPER.readTree(multiParamServiceRunner.run(ServiceRunnerInput.newInstance().withArgs(Arrays.asList(countryValues[0], countryNameValues[0], "John")).withSerializationFormat(SerializationFormat.PURE))));
+
+        }
     }
 
     @Test
@@ -332,27 +423,40 @@ public class TestServiceExecutionGenerator
 
     private ClassLoader generateAndCompile(String packagePrefix, Collection<? extends Service> services) throws IOException
     {
+        ServiceExecutionGenerator generator = ServiceExecutionGenerator.newBuilder()
+                .withServices(services)
+                .withPureModel(PURE_MODEL)
+                .withPackagePrefix(packagePrefix)
+                .withOutputDirectories(this.generatedSourcesDirectory, this.classesDirectory)
+                .withPlanGeneratorExtensions(ServiceLoader.load(PlanGeneratorExtension.class))
+                .withPureCoreExtensions(ServiceLoader.load(LegendPureCoreExtension.class))
+                .withClientVersion("vX_X_X")
+                .build();
+        generator.generate();
+
         // Generate
-        for (Service service : services)
-        {
-            ServiceExecutionGenerator.newGenerator(service, PURE_MODEL, packagePrefix, this.generatedSourcesDirectory, this.classesDirectory, null, core_relational_relational_router_router_extension.Root_meta_pure_router_extension_defaultRelationalExtensions__RouterExtension_MANY_(PURE_MODEL.getExecutionSupport()), LegendPlanTransformers.transformers, "vX_X_X").generate();
-        }
+        Set<String> enumClasses = LazyIterate.flatCollect(services, s -> ((PureExecution) s.execution).func.parameters)
+                .collectIf(
+                        p -> !PrimitiveUtilities.isPrimitiveTypeName(((PackageableType) p.genericType.rawType).fullPath),
+                        p -> org.finos.legend.pure.m3.navigation.PackageableElement.PackageableElement.getUserPathForPackageableElement(PURE_MODEL.getEnumeration(((PackageableType) p.genericType.rawType).fullPath, null)),
+                        Sets.mutable.empty());
 
         // Check generated files
         String separator = this.tmpFolder.getRoot().toPath().getFileSystem().getSeparator();
 
         // Check execution plan resources generated
-        Set<String> expectedResources = services.stream().map(s -> "plans" + separator + getPackagePrefix(packagePrefix, separator) + s.getPath().replace("::", separator) + ".json").collect(Collectors.toSet());
-        expectedResources.add("META-INF" + separator + "services" + separator +  ServiceRunner.class.getCanonicalName());
+        Set<String> expectedResources = services.stream().map(s -> "plans" + separator + getPackagePrefix(packagePrefix, separator) + s.getPath().replace(EntityPaths.PACKAGE_SEPARATOR, separator) + ".json").collect(Collectors.toSet());
+        expectedResources.add("META-INF" + separator + "services" + separator + ServiceRunner.class.getCanonicalName());
         Set<String> actualResources = Files.walk(this.classesDirectory, Integer.MAX_VALUE).filter(Files::isRegularFile).map(this.classesDirectory::relativize).map(Path::toString).collect(Collectors.toSet());
         Assert.assertEquals(expectedResources, actualResources);
 
         // Check class files generated
-        Set<String> expectedServiceJavaSources = services.stream().map(s -> getPackagePrefix(packagePrefix, separator) + s.getPath().replace("::", separator) + ".java").collect(Collectors.toSet());
+        Set<String> expectedJavaSources = services.stream().map(s -> getPackagePrefix(packagePrefix, separator) + s.getPath().replace(EntityPaths.PACKAGE_SEPARATOR, separator) + ".java").collect(Collectors.toSet());
+        enumClasses.forEach(v -> expectedJavaSources.add(getPackagePrefix(packagePrefix, separator) + Arrays.stream(v.split(EntityPaths.PACKAGE_SEPARATOR)).map(JavaSourceHelper::toValidJavaIdentifier).collect(Collectors.joining(this.generatedSourcesDirectory.getFileSystem().getSeparator())) + ".java"));
         Set<String> actualJavaSources = Files.walk(this.generatedSourcesDirectory, Integer.MAX_VALUE).map(this.generatedSourcesDirectory::relativize).map(Path::toString).filter(s -> s.endsWith(".java")).collect(Collectors.toSet());
-        if (!actualJavaSources.containsAll(expectedServiceJavaSources))
+        if (!actualJavaSources.containsAll(expectedJavaSources))
         {
-            Assert.fail(expectedServiceJavaSources.stream().filter(c -> !actualJavaSources.contains(c)).sorted().collect(Collectors.joining(", ", "Missing Java sources: ", "")));
+            Assert.fail(expectedJavaSources.stream().filter(c -> !actualJavaSources.contains(c)).sorted().collect(Collectors.joining(", ", "Missing Java sources: ", "")));
         }
 
         // Compile
@@ -365,14 +469,14 @@ public class TestServiceExecutionGenerator
         {
             Assert.fail(diagnosticCollector.getDiagnostics().toString());
         }
-        fileManager.writeClassJavaSources(this.classesDirectory, false);
+        fileManager.writeClassJavaSources(this.classesDirectory, false, new VoidLog());
 
         // Create new classloader and check that everything expected is present
         ClassLoader classLoader = new URLClassLoader(new URL[]{this.classesDirectory.toUri().toURL()}, Thread.currentThread().getContextClassLoader());
 
         // Check plan resources
         List<String> missingPlanResources = services.stream()
-                .map(s -> "plans/" + getPackagePrefix(packagePrefix, "/") + s.getPath().replace("::", "/") + ".json")
+                .map(s -> "plans/" + getPackagePrefix(packagePrefix, "/") + s.getPath().replace(EntityPaths.PACKAGE_SEPARATOR, "/") + ".json")
                 .filter(n -> classLoader.getResource(n) == null)
                 .sorted()
                 .collect(Collectors.toList());
@@ -380,7 +484,7 @@ public class TestServiceExecutionGenerator
 
         // Check service execution classes
         List<String> missingServiceExecutionClasses = services.stream()
-                .map(s -> getPackagePrefix(packagePrefix, ".") + s.getPath().replace("::", "."))
+                .map(s -> getPackagePrefix(packagePrefix, ".") + s.getPath().replace(EntityPaths.PACKAGE_SEPARATOR, "."))
                 .filter(n ->
                 {
                     try
@@ -403,7 +507,7 @@ public class TestServiceExecutionGenerator
         List<String> serviceRunnerProviders = new BufferedReader(new InputStreamReader(serviceRunnerResourceStream)).lines().collect(Collectors.toList());
         List<String> missingServiceProviders = services.stream()
                 .map(PackageableElement::getPath)
-                .filter(path -> !serviceRunnerProviders.contains(getPackagePrefix(packagePrefix, ".") + path.replace("::", ".")))
+                .filter(path -> !serviceRunnerProviders.contains(getPackagePrefix(packagePrefix, ".") + path.replace(EntityPaths.PACKAGE_SEPARATOR, ".")))
                 .sorted()
                 .collect(Collectors.toList());
         Assert.assertEquals(Collections.emptyList(), missingServiceProviders);

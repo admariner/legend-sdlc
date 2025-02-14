@@ -20,6 +20,7 @@ import org.apache.maven.project.MavenProject;
 import org.eclipse.collections.api.factory.Sets;
 import org.eclipse.collections.impl.utility.Iterate;
 import org.finos.legend.sdlc.domain.model.entity.Entity;
+import org.finos.legend.sdlc.tools.entity.EntityPaths;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -64,14 +65,14 @@ public class TestEntityMojo
         TestHelper.assertDirectoryEmptyOrNonExistent(outputDir);
 
         // Legend source directory exists (found as a default source directory)
-        Path simpleJsonModelDir = TestHelper.getPathFromResource("simple-json-model");
-        TestHelper.copyDirectoryTree(simpleJsonModelDir, Files.createDirectories(srcMain.resolve("legend")));
+        Path simpleJsonModelDir = TestHelper.getPathFromResource("simple-json-model/entities");
+        TestHelper.copyDirectoryTree(simpleJsonModelDir, Files.createDirectories(srcMain.resolve(Paths.get("legend"))));
         TestHelper.assertDirectoryEmptyOrNonExistent(outputDir);
         this.mojoRule.executeMojo(projectDir, GOAL);
 
-        Map<String, Entity> expectedEntities = TestHelper.loadEntities(simpleJsonModelDir);
+        Map<String, Entity> expectedEntities = TestHelper.loadEntities(TestHelper.getPathFromResource("simple-json-model"));
         TestHelper.assertDirectoryTreeFilePaths(
-                Iterate.collect(expectedEntities.keySet(), p -> Paths.get("entities" + outputDir.getFileSystem().getSeparator() + p.replace("::", outputDir.getFileSystem().getSeparator()) + ".json"), Sets.mutable.empty()),
+                Iterate.collect(expectedEntities.keySet(), p -> Paths.get("entities" + outputDir.getFileSystem().getSeparator() + p.replace(EntityPaths.PACKAGE_SEPARATOR, outputDir.getFileSystem().getSeparator()) + ".json"), Sets.mutable.empty()),
                 outputDir);
         Map<String, Entity> actualEntities = TestHelper.loadEntities(outputDir);
         TestHelper.assertEntitiesByPathEqual(expectedEntities, actualEntities);
@@ -148,7 +149,7 @@ public class TestEntityMojo
 
         Map<String, Entity> expectedEntities = TestHelper.loadEntities(simpleJsonModelDir);
         TestHelper.assertDirectoryTreeFilePaths(
-                Iterate.collect(expectedEntities.keySet(), p -> Paths.get("entities" + outputDir.getFileSystem().getSeparator() + p.replace("::", outputDir.getFileSystem().getSeparator()) + ".json"), Sets.mutable.empty()),
+                Iterate.collect(expectedEntities.keySet(), p -> Paths.get("entities" + outputDir.getFileSystem().getSeparator() + p.replace(EntityPaths.PACKAGE_SEPARATOR, outputDir.getFileSystem().getSeparator()) + ".json"), Sets.mutable.empty()),
                 outputDir);
         Map<String, Entity> actualEntities = TestHelper.loadEntities(outputDir);
         TestHelper.assertEntitiesByPathEqual(expectedEntities, actualEntities);
@@ -181,10 +182,48 @@ public class TestEntityMojo
 
         Map<String, Entity> expectedEntities = TestHelper.loadEntities(TestHelper.getPathFromResource("simple-json-model"));
         TestHelper.assertDirectoryTreeFilePaths(
-                Iterate.collect(expectedEntities.keySet(), p -> Paths.get("entities" + outputDir.getFileSystem().getSeparator() + p.replace("::", outputDir.getFileSystem().getSeparator()) + ".json"), Sets.mutable.empty()),
+                Iterate.collect(expectedEntities.keySet(), p -> Paths.get("entities" + outputDir.getFileSystem().getSeparator() + p.replace(EntityPaths.PACKAGE_SEPARATOR, outputDir.getFileSystem().getSeparator()) + ".json"), Sets.mutable.empty()),
                 outputDir);
         Map<String, Entity> actualEntities = TestHelper.loadEntities(outputDir);
         TestHelper.assertEntitiesByPathEqual(expectedEntities, actualEntities);
+    }
+
+    @Test
+    public void testAllPureSourceInSingleFile() throws Exception
+    {
+        File projectDir = this.tempFolder.newFolder();
+        copyPomFromResource("poms/multi-element-pure-source-directory.xml", projectDir);
+        MavenProject mavenProject = this.mojoRule.readMavenProject(projectDir);
+        Path outputDir = new File(mavenProject.getBuild().getOutputDirectory()).toPath();
+        Path srcMain = projectDir.toPath().resolve("src").resolve("main");
+
+        TestHelper.copyResourceDirectoryTree("single-file-pure-model", Files.createDirectories(srcMain.resolve("pure")));
+        TestHelper.assertDirectoryEmptyOrNonExistent(outputDir);
+        this.mojoRule.executeMojo(projectDir, GOAL);
+
+        Map<String, Entity> expectedEntities = TestHelper.loadEntities(TestHelper.getPathFromResource("single-file-json-model"));
+        TestHelper.assertDirectoryTreeFilePaths(
+                Iterate.collect(expectedEntities.keySet(), p -> Paths.get("entities" + outputDir.getFileSystem().getSeparator() + p.replace(EntityPaths.PACKAGE_SEPARATOR, outputDir.getFileSystem().getSeparator()) + ".json"), Sets.mutable.empty()),
+                outputDir);
+        Map<String, Entity> actualEntities = TestHelper.loadEntities(outputDir);
+        TestHelper.assertEntitiesByPathEqual(expectedEntities, actualEntities);
+    }
+
+    @Test
+    public void testAllPureSourceInSingleFileWithImports() throws Exception
+    {
+        File projectDir = this.tempFolder.newFolder();
+        copyPomFromResource("poms/multi-element-pure-source-directory.xml", projectDir);
+        MavenProject mavenProject = this.mojoRule.readMavenProject(projectDir);
+        Path outputDir = new File(mavenProject.getBuild().getOutputDirectory()).toPath();
+        Path srcMain = projectDir.toPath().resolve("src").resolve("main");
+
+        TestHelper.copyResourceDirectoryTree("single-file-pure-model-with-imports", Files.createDirectories(srcMain.resolve("pure")));
+        TestHelper.assertDirectoryEmptyOrNonExistent(outputDir);
+
+        String expectedMessage = "Error reserializing entities from " + srcMain.resolve("pure") + " using serializer \"pure\" to " + outputDir + ": Error deserializing entity from " + srcMain.resolve(Paths.get("pure", "model", "domain", "singleFileWithImports.pure")) + ": Imports in Pure files are not currently supported";;
+        MojoExecutionException e = Assert.assertThrows(MojoExecutionException.class, () -> this.mojoRule.executeMojo(projectDir, GOAL));
+        Assert.assertEquals(expectedMessage, e.getMessage());
     }
 
     @Test
@@ -202,7 +241,7 @@ public class TestEntityMojo
 
         Map<String, Entity> expectedEntities = TestHelper.loadEntities(TestHelper.getPathFromResource("simple-json-model"));
         TestHelper.assertDirectoryTreeFilePaths(
-                Iterate.collect(expectedEntities.keySet(), p -> Paths.get("entities" + outputDir.getFileSystem().getSeparator() + p.replace("::", outputDir.getFileSystem().getSeparator()) + ".json"), Sets.mutable.empty()),
+                Iterate.collect(expectedEntities.keySet(), p -> Paths.get("entities" + outputDir.getFileSystem().getSeparator() + p.replace(EntityPaths.PACKAGE_SEPARATOR, outputDir.getFileSystem().getSeparator()) + ".json"), Sets.mutable.empty()),
                 outputDir);
         Map<String, Entity> actualEntities = TestHelper.loadEntities(outputDir);
         TestHelper.assertEntitiesByPathEqual(expectedEntities, actualEntities);
@@ -224,7 +263,7 @@ public class TestEntityMojo
 
         Map<String, Entity> expectedEntities = TestHelper.loadEntities(TestHelper.getPathFromResource("simple-json-model"));
         TestHelper.assertDirectoryTreeFilePaths(
-                Iterate.collect(expectedEntities.keySet(), p -> Paths.get("entities" + outputDir.getFileSystem().getSeparator() + p.replace("::", outputDir.getFileSystem().getSeparator()) + ".json"), Sets.mutable.empty()),
+                Iterate.collect(expectedEntities.keySet(), p -> Paths.get("entities" + outputDir.getFileSystem().getSeparator() + p.replace(EntityPaths.PACKAGE_SEPARATOR, outputDir.getFileSystem().getSeparator()) + ".json"), Sets.mutable.empty()),
                 outputDir);
         Map<String, Entity> actualEntities = TestHelper.loadEntities(outputDir);
         TestHelper.assertEntitiesByPathEqual(expectedEntities, actualEntities);
@@ -239,8 +278,8 @@ public class TestEntityMojo
         Path outputDir = new File(mavenProject.getBuild().getOutputDirectory()).toPath();
 
         Path srcMain = projectDir.toPath().resolve("src").resolve("main");
-        TestHelper.copyResourceDirectoryTree("simple-json-model", Files.createDirectories(srcMain.resolve("legend")));
-        TestHelper.copyResourceDirectoryTree("simple-pure-model/model/domain/enums", Files.createDirectories(srcMain.resolve("pure")));
+        TestHelper.copyResourceDirectoryTree("simple-json-model/entities", Files.createDirectories(srcMain.resolve("legend")));
+        TestHelper.copyResourceDirectoryTree("simple-pure-model/model/domain/enums", Files.createDirectories(srcMain.resolve(Paths.get("pure", "model", "domain", "enums"))));
         TestHelper.assertDirectoryEmptyOrNonExistent(outputDir);
 
         String expectedMessage = "Error reserializing entities from " + srcMain.resolve("pure") + " using serializer \"pure\" to " + outputDir + ": Error serializing entity 'model::domain::enums::AddressType' to " + outputDir.resolve(Paths.get("entities", "model", "domain", "enums", "AddressType.json")) + ": target file already exists";

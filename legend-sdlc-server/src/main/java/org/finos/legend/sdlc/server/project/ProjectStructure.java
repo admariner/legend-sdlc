@@ -14,22 +14,31 @@
 
 package org.finos.legend.sdlc.server.project;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.StreamReadFeature;
 import com.fasterxml.jackson.core.StreamWriteFeature;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.eclipse.collections.api.factory.Lists;
+import org.eclipse.collections.api.factory.Maps;
 import org.eclipse.collections.api.factory.Sets;
 import org.eclipse.collections.api.list.MutableList;
+import org.eclipse.collections.api.map.MutableMap;
+import org.eclipse.collections.api.set.MutableSet;
+import org.eclipse.collections.api.tuple.Pair;
 import org.eclipse.collections.impl.list.mutable.ListAdapter;
+import org.eclipse.collections.impl.tuple.Tuples;
 import org.eclipse.collections.impl.utility.Iterate;
+import org.eclipse.collections.impl.utility.LazyIterate;
+import org.eclipse.collections.impl.utility.ListIterate;
 import org.finos.legend.sdlc.domain.model.entity.Entity;
+import org.finos.legend.sdlc.domain.model.project.ProjectType;
 import org.finos.legend.sdlc.domain.model.project.configuration.ArtifactGeneration;
 import org.finos.legend.sdlc.domain.model.project.configuration.ArtifactType;
 import org.finos.legend.sdlc.domain.model.project.configuration.ArtifactTypeGenerationConfiguration;
-import org.finos.legend.sdlc.domain.model.project.configuration.Dependency;
 import org.finos.legend.sdlc.domain.model.project.configuration.MetamodelDependency;
+import org.finos.legend.sdlc.domain.model.project.configuration.PlatformConfiguration;
 import org.finos.legend.sdlc.domain.model.project.configuration.ProjectConfiguration;
 import org.finos.legend.sdlc.domain.model.project.configuration.ProjectDependency;
 import org.finos.legend.sdlc.domain.model.project.configuration.ProjectStructureVersion;
@@ -38,53 +47,54 @@ import org.finos.legend.sdlc.domain.model.revision.Revision;
 import org.finos.legend.sdlc.domain.model.version.VersionId;
 import org.finos.legend.sdlc.serialization.EntitySerializer;
 import org.finos.legend.sdlc.serialization.EntitySerializers;
+import org.finos.legend.sdlc.server.domain.api.project.ProjectConfigurationUpdater;
+import org.finos.legend.sdlc.server.domain.api.project.source.SourceSpecification;
+import org.finos.legend.sdlc.server.domain.api.workspace.WorkspaceSpecification;
 import org.finos.legend.sdlc.server.error.LegendSDLCServerException;
 import org.finos.legend.sdlc.server.project.ProjectFileAccessProvider.FileAccessContext;
 import org.finos.legend.sdlc.server.project.ProjectFileAccessProvider.ProjectFile;
+import org.finos.legend.sdlc.server.project.ProjectFileAccessProvider.WorkspaceAccessType;
 import org.finos.legend.sdlc.server.project.extension.ProjectStructureExtension;
+import org.finos.legend.sdlc.server.project.extension.ProjectStructureExtensionProvider;
 import org.finos.legend.sdlc.server.tools.StringTools;
+import org.finos.legend.sdlc.tools.entity.EntityPaths;
 
-import javax.lang.model.SourceVersion;
-import javax.ws.rs.core.Response.Status;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.Reader;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.SortedMap;
-import java.util.SortedSet;
 import java.util.TreeMap;
-import java.util.TreeSet;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.lang.model.SourceVersion;
+import javax.ws.rs.core.Response.Status;
 
 public abstract class ProjectStructure
 {
     private static final JsonMapper JSON = JsonMapper.builder()
-        .enable(SerializationFeature.INDENT_OUTPUT)
-        .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
-        .enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
-        .disable(StreamWriteFeature.AUTO_CLOSE_TARGET)
-        .disable(StreamReadFeature.AUTO_CLOSE_SOURCE)
-        .build();
+            .enable(SerializationFeature.INDENT_OUTPUT)
+            .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
+            .enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
+            .disable(StreamWriteFeature.AUTO_CLOSE_TARGET)
+            .disable(StreamReadFeature.AUTO_CLOSE_SOURCE)
+            .serializationInclusion(JsonInclude.Include.NON_NULL)
+            .build();
 
     private static final ProjectStructureFactory PROJECT_STRUCTURE_FACTORY = ProjectStructureFactory.newFactory(ProjectStructure.class.getClassLoader());
 
-    private static final Pattern VALID_ARTIFACT_ID_PATTERN = Pattern.compile("^[a-z][a-z0-9_]*+(-[a-z][a-z0-9_]*+)*+$");
+    private static final Pattern VALID_ARTIFACT_ID_PATTERN = Pattern.compile("[a-z][a-z\\d_]*+(-[a-z][a-z\\d_]*+)*+");
+    private static final Pattern STRICT_VERSION_ID_PATTERN = Pattern.compile("((0|([1-9]\\d*+))\\.){2}(0|([1-9]\\d*+))");
 
     public static final String PROJECT_CONFIG_PATH = "/project.json";
-
-    private static final String PACKAGE_SEPARATOR = "::";
 
     private static final Set<ArtifactType> FORBIDDEN_ARTIFACT_GENERATION_TYPES = Collections.unmodifiableSet(EnumSet.of(ArtifactType.entities, ArtifactType.versioned_entities, ArtifactType.service_execution));
 
@@ -180,7 +190,16 @@ public abstract class ProjectStructure
         return this.entitySourceDirectories.detectWith(EntitySourceDirectory::isPossiblyEntityFilePath, path);
     }
 
-    public abstract void collectUpdateProjectConfigurationOperations(ProjectStructure oldStructure, FileAccessContext fileAccessContext, BiFunction<String, VersionId, FileAccessContext> versionFileAccessContextProvider, Consumer<ProjectFileOperation> operationConsumer);
+    @Deprecated
+    public void collectUpdateProjectConfigurationOperations(ProjectStructure oldStructure, FileAccessContext fileAccessContext, BiFunction<String, VersionId, FileAccessContext> versionFileAccessContextProvider, Consumer<ProjectFileOperation> operationConsumer)
+    {
+        // retained for backward compatibility
+    }
+
+    protected void collectUpdateProjectConfigurationOperations(ProjectStructure oldStructure, FileAccessContext fileAccessContext, Consumer<ProjectFileOperation> operationConsumer)
+    {
+        // Nothing by default
+    }
 
     protected void addOrModifyFile(String path, String newContent, FileAccessContext fileAccessContext, Consumer<ProjectFileOperation> operationConsumer)
     {
@@ -282,24 +301,15 @@ public abstract class ProjectStructure
         ProjectConfiguration projectConfig = getProjectConfiguration();
         if (projectConfig != null)
         {
-            List<ArtifactGeneration> unsupportedGenerations = projectConfig.getArtifactGenerations().stream().filter(g -> !isSupportedArtifactType(g.getType())).collect(Collectors.toList());
-            if (!unsupportedGenerations.isEmpty())
+            MutableList<ArtifactGeneration> unsupportedGenerations = Iterate.select(projectConfig.getArtifactGenerations(), g -> !isSupportedArtifactType(g.getType()), Lists.mutable.empty());
+            if (unsupportedGenerations.notEmpty())
             {
-                unsupportedGenerations.sort(Comparator.comparing(ArtifactGeneration::getName));
-                throw new IllegalStateException(unsupportedGenerations.stream().map(g -> g.getName() + " (" + g.getType() + ")").collect(Collectors.joining(", ", "Unsupported artifact generations: ", "")));
+                StringBuilder builder = new StringBuilder("Unsupported artifact generations: ");
+                unsupportedGenerations.sortThis(Comparator.comparing(ArtifactGeneration::getName))
+                        .forEachWithIndex((g, i) -> ((i == 0) ? builder : builder.append(", ")).append(g.getName()).append(" (").append(g.getType()).append(")"));
+                throw new IllegalStateException(builder.toString());
             }
         }
-    }
-
-    protected static ProjectStructure getProjectStructureForProjectDependency(ProjectDependency projectDependency, BiFunction<String, VersionId, FileAccessContext> versionFileAccessContextProvider)
-    {
-        FileAccessContext versionFileAccessContext = versionFileAccessContextProvider.apply(projectDependency.getProjectId(), projectDependency.getVersionId());
-        ProjectConfiguration versionConfig = ProjectStructure.getProjectConfiguration(versionFileAccessContext);
-        if (versionConfig == null)
-        {
-            throw new LegendSDLCServerException("Invalid version of project " + projectDependency.getProjectId() + ": " + projectDependency.getVersionId().toVersionIdString());
-        }
-        return ProjectStructure.getProjectStructure(versionConfig);
     }
 
     public static int getLatestProjectStructureVersion()
@@ -307,9 +317,9 @@ public abstract class ProjectStructure
         return PROJECT_STRUCTURE_FACTORY.getLatestVersion();
     }
 
-    public static ProjectStructure getProjectStructure(String projectId, String workspaceId, String revisionId, ProjectFileAccessProvider projectFileAccessor, WorkspaceType workspaceType, ProjectFileAccessProvider.WorkspaceAccessType workspaceAccessType)
+    public static ProjectStructure getProjectStructure(String projectId, SourceSpecification sourceSpecification, String revisionId, ProjectFileAccessProvider projectFileAccessor)
     {
-        return getProjectStructure(projectFileAccessor.getFileAccessContext(projectId, workspaceId, workspaceType, workspaceAccessType, revisionId));
+        return getProjectStructure(projectFileAccessor.getFileAccessContext(projectId, sourceSpecification, revisionId));
     }
 
     public static ProjectStructure getProjectStructure(FileAccessContext fileAccessContext)
@@ -330,14 +340,14 @@ public abstract class ProjectStructure
 
     // for backward compatibility
     @Deprecated
-    public static ProjectConfiguration getProjectConfiguration(String projectId, String workspaceId, String revisionId, ProjectFileAccessProvider projectFileAccessProvider, ProjectFileAccessProvider.WorkspaceAccessType workspaceAccessType)
+    public static ProjectConfiguration getProjectConfiguration(String projectId, String workspaceId, String revisionId, ProjectFileAccessProvider projectFileAccessProvider, WorkspaceAccessType workspaceAccessType)
     {
-        return getProjectConfiguration(projectId, workspaceId, revisionId, projectFileAccessProvider, WorkspaceType.USER, workspaceAccessType);
+        return getProjectConfiguration(projectId, SourceSpecification.newSourceSpecification(workspaceId, WorkspaceType.USER, workspaceAccessType), revisionId, projectFileAccessProvider);
     }
 
-    public static ProjectConfiguration getProjectConfiguration(String projectId, String workspaceId, String revisionId, ProjectFileAccessProvider projectFileAccessProvider, WorkspaceType workspaceType, ProjectFileAccessProvider.WorkspaceAccessType workspaceAccessType)
+    public static ProjectConfiguration getProjectConfiguration(String projectId, SourceSpecification sourceSpecification, String revisionId, ProjectFileAccessProvider projectFileAccessProvider)
     {
-        return getProjectConfiguration(projectFileAccessProvider.getFileAccessContext(projectId, workspaceId, workspaceType, workspaceAccessType, revisionId));
+        return getProjectConfiguration(projectFileAccessProvider.getFileAccessContext(projectId, sourceSpecification, revisionId));
     }
 
     public static ProjectConfiguration getProjectConfiguration(String projectId, VersionId versionId, ProjectFileAccessProvider projectFileAccessProvider)
@@ -353,7 +363,12 @@ public abstract class ProjectStructure
 
     public static ProjectConfiguration getDefaultProjectConfiguration(String projectId)
     {
-        return new SimpleProjectConfiguration(projectId, ProjectStructureVersion.newProjectStructureVersion(0), null, null, null, null, null);
+        return SimpleProjectConfiguration.newConfiguration(projectId, ProjectStructureVersion.newProjectStructureVersion(0), null, null, null, null, null);
+    }
+
+    public static boolean isValidProjectType(ProjectType projectType)
+    {
+        return projectType == ProjectType.MANAGED || projectType == ProjectType.EMBEDDED;
     }
 
     public static boolean isValidGroupId(String groupId)
@@ -366,51 +381,34 @@ public abstract class ProjectStructure
         return (artifactId != null) && !artifactId.isEmpty() && VALID_ARTIFACT_ID_PATTERN.matcher(artifactId).matches();
     }
 
-    static Revision buildProjectStructure(ProjectConfigurationUpdateBuilder configurationUpdater)
+    public static boolean isProperProjectDependency(ProjectDependency dependency)
     {
-        if (!configurationUpdater.hasProjectStructureVersion())
-        {
-            configurationUpdater.setProjectStructureVersion(getLatestProjectStructureVersion());
-        }
-        if (configurationUpdater.hasProjectStructureExtensionVersion() && !configurationUpdater.hasProjectStructureExtensionProvider())
-        {
-            throw new IllegalArgumentException("Project structure extension version specified (" + configurationUpdater.getProjectStructureExtensionVersion() + ") with no project structure extension provider");
-        }
-        if (!configurationUpdater.hasProjectStructureExtensionVersion() && configurationUpdater.hasProjectStructureExtensionProvider())
-        {
-            configurationUpdater.setProjectStructureExtensionVersion(configurationUpdater.getProjectStructureExtensionProvider().getLatestVersionForProjectStructureVersion(configurationUpdater.getProjectStructureVersion()));
-        }
-
-        return updateProjectConfiguration(configurationUpdater, false);
+        return (dependency != null) && isValidProjectDependencyProjectId(dependency.getProjectId()) && isStrictVersionId(dependency.getVersionId());
     }
 
-    static Revision updateProjectConfiguration(ProjectConfigurationUpdateBuilder configurationUpdater)
+    private static boolean isValidProjectDependencyProjectId(String projectId)
     {
-        return updateProjectConfiguration(configurationUpdater, true);
+        return (projectId != null) && projectId.codePoints().anyMatch(c -> !Character.isWhitespace(c));
     }
 
-    private static Revision updateProjectConfiguration(ProjectConfigurationUpdateBuilder updateBuilder, boolean requireRevisionId)
+    public static boolean isStrictVersionId(String versionId)
     {
-        ProjectFileAccessProvider projectFileAccessProvider = CachingProjectFileAccessProvider.wrap(updateBuilder.getProjectFileAccessProvider());
-        ProjectFileAccessProvider.WorkspaceAccessType workspaceAccessType = updateBuilder.getWorkspaceAccessType();
-        WorkspaceType workspaceType = updateBuilder.getWorkspaceType();
+        return (versionId != null) && (versionId.length() >= 5) && STRICT_VERSION_ID_PATTERN.matcher(versionId).matches();
+    }
 
-        if (updateBuilder.hasGroupId() && !isValidGroupId(updateBuilder.getGroupId()))
-        {
-            throw new LegendSDLCServerException("Invalid groupId: " + updateBuilder.getGroupId(), Status.BAD_REQUEST);
-        }
-        if (updateBuilder.hasArtifactId() && !isValidArtifactId(updateBuilder.getArtifactId()))
-        {
-            throw new LegendSDLCServerException("Invalid artifactId: " + updateBuilder.getArtifactId(), Status.BAD_REQUEST);
-        }
-
+    private static Revision updateProjectConfiguration(UpdateBuilder updateBuilder, boolean requireRevisionId)
+    {
         String projectId = updateBuilder.getProjectId();
-        String workspaceId = updateBuilder.getWorkspaceId();
-        String revisionId = updateBuilder.getRevisionId();
+        String workspaceId = updateBuilder.getSourceSpecification().getWorkspaceId();
+        VersionId patchReleaseVersionId = updateBuilder.getSourceSpecification().getPatchReleaseVersionId();
+        WorkspaceType workspaceType = updateBuilder.getSourceSpecification().getWorkspaceType();
+        WorkspaceAccessType workspaceAccessType = updateBuilder.getSourceSpecification().getWorkspaceAccessType();
+        ProjectFileAccessProvider projectFileAccessProvider = updateBuilder.getProjectFileAccessProvider();
 
-        // if revisionId not specified, get the current revision
-        if (revisionId == null)
+        String revisionId;
+        if (updateBuilder.getRevisionId() == null)
         {
+            // if revisionId not specified, get the current revision
             Revision currentRevision = projectFileAccessProvider.getRevisionAccessContext(projectId, workspaceId, workspaceType, workspaceAccessType).getCurrentRevision();
             if (currentRevision != null)
             {
@@ -426,193 +424,74 @@ public abstract class ProjectStructure
                 builder.append("project ").append(projectId).append(": it may be corrupt");
                 throw new LegendSDLCServerException(builder.toString());
             }
-        }
-
-        // find out what we need to update for project structure
-        FileAccessContext fileAccessContext = CachingFileAccessContext.wrap(projectFileAccessProvider.getFileAccessContext(projectId, workspaceId, workspaceType, workspaceAccessType, revisionId));
-        ProjectFile configFile = getProjectConfigurationFile(fileAccessContext);
-        ProjectConfiguration currentConfig = (configFile == null) ? getDefaultProjectConfiguration(projectId) : readProjectConfiguration(configFile);
-
-        boolean updateProjectStructureVersion = updateBuilder.hasProjectStructureVersion() && (updateBuilder.getProjectStructureVersion() != currentConfig.getProjectStructureVersion().getVersion());
-        boolean updateProjectStructureExtensionVersion = updateBuilder.hasProjectStructureExtensionVersion() && !updateBuilder.getProjectStructureExtensionVersion().equals(currentConfig.getProjectStructureVersion().getExtensionVersion());
-        boolean updateGroupId = updateBuilder.hasGroupId() && !updateBuilder.getGroupId().equals(currentConfig.getGroupId());
-        boolean updateArtifactId = updateBuilder.hasArtifactId() && !updateBuilder.getArtifactId().equals(currentConfig.getArtifactId());
-
-        // find out which dependencies we need to update
-        boolean updateProjectDependencies = false;
-        Set<ProjectDependency> projectDependencies = Sets.mutable.withAll(currentConfig.getProjectDependencies());
-        Set<ProjectDependency> toUpdateProjectDependencies = projectDependencies.stream().filter(dep -> ProjectDependency.isLegacyProjectDependency(dep) && !(updateBuilder.hasProjectDependenciesToRemove() && updateBuilder.getProjectDependenciesToRemove().contains(dep))).collect(Collectors.toSet());
-
-        if (toUpdateProjectDependencies.size() > 0)
-        {
-            updateProjectDependencies = true;
-            updateOrAddDependencies(toUpdateProjectDependencies, projectFileAccessProvider, projectDependencies, true);
-        }
-
-        if (updateBuilder.hasProjectDependenciesToRemove())
-        {
-            updateProjectDependencies |= projectDependencies.removeAll(updateBuilder.getProjectDependenciesToRemove());
-        }
-
-        // add new dependencies to the list of dependencies while also validate that there are no unknown/non-prod dependencies
-        if (updateBuilder.hasProjectDependenciesToAdd())
-        {
-            updateProjectDependencies = true;
-            updateOrAddDependencies(updateBuilder.getProjectDependenciesToAdd(), projectFileAccessProvider, projectDependencies, false);
-        }
-
-        // validate if there are any conflicts between the dependencies
-        if (updateProjectDependencies)
-        {
-            validateDependencyConflicts(projectDependencies, ProjectDependency::getProjectId, (id, deps) ->
-            {
-                if ((deps.size() <= 1) || deps.stream().allMatch(dep -> getProjectStructure(projectFileAccessProvider.getFileAccessContext(dep.getProjectId(), dep.getVersionId())).isSupportedArtifactType(ArtifactType.versioned_entities)))
-                {
-                    return null;
-                }
-                List<ProjectDependency> supported = Lists.mutable.empty();
-                List<ProjectDependency> unsupported = Lists.mutable.empty();
-                deps.forEach(dep -> (getProjectStructure(projectFileAccessProvider.getFileAccessContext(dep.getProjectId(), dep.getVersionId())).isSupportedArtifactType(ArtifactType.versioned_entities) ? supported : unsupported).add(dep));
-                StringBuilder message = new StringBuilder();
-                unsupported.forEach(dep -> dep.appendVersionIdString((message.length() == 0) ? message : message.append(", ")));
-                message.append((unsupported.size() == 1) ? " does" : " do").append(" not support multi-version dependency");
-                if (!supported.isEmpty())
-                {
-                    int startLen = message.length();
-                    supported.forEach(dep -> dep.appendVersionIdString(message.append((message.length() == startLen) ? "; " : ", ")));
-                    message.append((supported.size() == 1) ? " does" : " do");
-                }
-                return message.toString();
-            }, "projects");
-        }
-
-        // check if we need to update any metamodel dependencies
-        boolean updateMetamodelDependencies = false;
-        Set<MetamodelDependency> metamodelDependencies = Sets.mutable.withAll(currentConfig.getMetamodelDependencies());
-        if (updateBuilder.hasMetamodelDependenciesToRemove())
-        {
-            updateMetamodelDependencies |= metamodelDependencies.removeAll(updateBuilder.getMetamodelDependenciesToRemove());
-        }
-
-        // add new metamodel dependencies to the list of metamodel dependencies while also validate that there are no unknown metamodel dependencies
-        if (updateBuilder.hasMetamodelDependenciesToAdd())
-        {
-            List<MetamodelDependency> unknownDependencies = Lists.mutable.empty();
-            for (MetamodelDependency metamodelDependency : updateBuilder.getMetamodelDependenciesToAdd())
-            {
-                if (metamodelDependencies.add(metamodelDependency))
-                {
-                    updateMetamodelDependencies = true;
-                    if (!isKnownMetamodel(metamodelDependency))
-                    {
-                        unknownDependencies.add(metamodelDependency);
-                    }
-                }
-            }
-            if (!unknownDependencies.isEmpty())
-            {
-                StringBuilder builder = new StringBuilder("There were issues with one or more added metamodel dependencies");
-                builder.append("; unknown ").append((unknownDependencies.size() == 1) ? "dependency" : "dependencies").append(": ");
-                unknownDependencies.sort(Comparator.naturalOrder());
-                unknownDependencies.forEach(d -> d.appendDependencyString((d == unknownDependencies.get(0)) ? builder : builder.append(", ")));
-                throw new LegendSDLCServerException(builder.toString(), Status.BAD_REQUEST);
-            }
-        }
-
-        // validate that there are no conflicts between the metamodel dependencies
-        if (updateMetamodelDependencies)
-        {
-            validateDependencyConflicts(
-                metamodelDependencies,
-                MetamodelDependency::getMetamodel,
-                (id, deps) -> (deps.size() > 1) ? deps.stream().collect(StringBuilder::new, (builder, dep) -> dep.appendVersionIdString(builder.append((builder.length() == 0) ? "multiple versions not allowed: " : ", ")), StringBuilder::append).toString() : null,
-                "metamodels");
-        }
-
-
-        boolean updateGeneration = false;
-
-        Map<String, ArtifactGeneration> generationsByName = currentConfig.getArtifactGenerations().stream().collect(Collectors.toMap(ArtifactGeneration::getName, Function.identity()));
-
-        if (updateBuilder.hasArtifactGenerationsToRemove())
-        {
-            updateGeneration = generationsByName.keySet().stream().anyMatch(updateBuilder.getArtifactGenerationToRemove()::contains);
-            updateBuilder.getArtifactGenerationToRemove().forEach(generationsByName::remove);
-        }
-
-        if (updateBuilder.hasArtifactGenerationsToAdd())
-        {
-            validateArtifactGenerations(generationsByName, updateBuilder.getArtifactGenerationToAdd());
-
-            updateGeneration = updateBuilder.getArtifactGenerationToAdd().stream().noneMatch(generationsByName.values()::contains);
-
-            updateBuilder.getArtifactGenerationToAdd().forEach(art -> generationsByName.put(art.getName(), art));
-        }
-
-        // abort if there is no change to make
-        if (!updateProjectStructureVersion && !updateProjectStructureExtensionVersion && !updateGroupId && !updateArtifactId && !updateProjectDependencies && !updateMetamodelDependencies && !updateGeneration)
-        {
-            return null;
-        }
-
-        // Collect operations
-        List<ProjectFileOperation> operations = Lists.mutable.empty();
-
-        // New configuration
-        SimpleProjectConfiguration newConfig = new SimpleProjectConfiguration(currentConfig);
-        if (updateProjectStructureVersion)
-        {
-            if (updateBuilder.hasProjectStructureExtensionVersion())
-            {
-                newConfig.setProjectStructureVersion(updateBuilder.getProjectStructureVersion(), updateBuilder.getProjectStructureExtensionVersion());
-            }
-            else if (updateBuilder.hasProjectStructureExtensionProvider())
-            {
-                newConfig.setProjectStructureVersion(updateBuilder.getProjectStructureVersion(), updateBuilder.getProjectStructureExtensionProvider().getLatestVersionForProjectStructureVersion(updateBuilder.getProjectStructureVersion()));
-            }
             else
             {
-                newConfig.setProjectStructureVersion(updateBuilder.getProjectStructureVersion(), null);
+                revisionId = null;
             }
         }
-        else if (updateProjectStructureExtensionVersion)
+        else
         {
-            newConfig.setProjectStructureVersion(currentConfig.getProjectStructureVersion().getVersion(), updateBuilder.getProjectStructureExtensionVersion());
-        }
-        if (updateGroupId)
-        {
-            newConfig.setGroupId(updateBuilder.getGroupId());
-        }
-        if (updateArtifactId)
-        {
-            newConfig.setArtifactId(updateBuilder.getArtifactId());
-        }
-        if (updateProjectDependencies)
-        {
-            List<ProjectDependency> projectDependencyList = Lists.mutable.withAll(projectDependencies);
-            projectDependencyList.sort(Comparator.naturalOrder());
-            newConfig.setProjectDependencies(projectDependencyList);
-        }
-        if (updateMetamodelDependencies)
-        {
-            List<MetamodelDependency> metamodelDependencyList = Lists.mutable.withAll(metamodelDependencies);
-            metamodelDependencyList.sort(Comparator.naturalOrder());
-            newConfig.setMetamodelDependencies(metamodelDependencyList);
-        }
-        if (updateGeneration)
-        {
-            List<ArtifactGeneration> artifactGenerationsList = Lists.mutable.withAll(generationsByName.values());
-            artifactGenerationsList.sort(Comparator.comparing(ArtifactGeneration::getName));
-            newConfig.setArtifactGeneration(artifactGenerationsList);
+            revisionId = updateBuilder.getRevisionId();
         }
 
+        FileAccessContext fileAccessContext = CachingFileAccessContext.wrap(projectFileAccessProvider.getFileAccessContext(projectId, SourceSpecification.newSourceSpecification(workspaceId, workspaceType, workspaceAccessType, patchReleaseVersionId), revisionId));
+
+        ProjectFile configFile = getProjectConfigurationFile(fileAccessContext);
+        ProjectConfiguration currentConfig = (configFile == null) ? getDefaultProjectConfiguration(projectId) : readProjectConfiguration(configFile);
+        ProjectType oldProjectType = currentConfig.getProjectType();
+        // Upgrade old project types
+        if (!ProjectStructure.isValidProjectType(oldProjectType))
+        {
+            oldProjectType = ProjectType.MANAGED;
+            if (updateBuilder.configUpdater.getProjectType() == null)
+            {
+                updateBuilder.configUpdater.setProjectType(oldProjectType);
+            }
+        }
+        ProjectType newProjectType = updateBuilder.configUpdater.getProjectType() == null ? oldProjectType : updateBuilder.configUpdater.getProjectType();
+        // For MANAGED projects
+        if (updateBuilder.projectStructureExtensionProvider != null && newProjectType != ProjectType.EMBEDDED)
+        {
+            // converted from EMBEDDED set version
+            if (oldProjectType == ProjectType.EMBEDDED && updateBuilder.configUpdater.getProjectStructureVersion() == null)
+            {
+                updateBuilder.configUpdater.setProjectStructureVersion(currentConfig.getProjectStructureVersion().getVersion());
+            }
+            // if extension version was not specified, use the latest one for given version
+            if (updateBuilder.configUpdater.getProjectStructureVersion() != null && updateBuilder.configUpdater.getProjectStructureExtensionVersion() == null)
+            {
+                updateBuilder.configUpdater.setProjectStructureExtensionVersion(updateBuilder.projectStructureExtensionProvider.getLatestVersionForProjectStructureVersion(updateBuilder.configUpdater.getProjectStructureVersion()));
+            }
+        }
+        ProjectConfiguration newConfig = updateLegacyDependencies(updateBuilder.getProjectConfigurationUpdater().update(currentConfig), projectFileAccessProvider);
+
+        validateProjectConfiguration(newConfig);
+
+        ProjectStructureVersion oldProjectVersion = currentConfig.getProjectStructureVersion();
+        // prevent extensions on non-managed projects
+        if (newConfig.getProjectType() == ProjectType.EMBEDDED)
+        {
+            if (newConfig.getProjectStructureVersion().getExtensionVersion() != null)
+            {
+                throw new LegendSDLCServerException("Cannot set extensions on project " + projectId + " with " + newConfig.getProjectType() + " type", Status.BAD_REQUEST);
+            }
+            oldProjectVersion = ProjectStructureVersion.newProjectStructureVersion(oldProjectVersion.getVersion());
+        }
         // prevent downgrading project
-        if (newConfig.getProjectStructureVersion().compareTo(currentConfig.getProjectStructureVersion()) < 0)
+        if (newConfig.getProjectStructureVersion().compareTo(oldProjectVersion) < 0)
         {
             throw new LegendSDLCServerException("Cannot change project " + projectId + " from project structure version " + currentConfig.getProjectStructureVersion().toVersionString() + " to version " + newConfig.getProjectStructureVersion().toVersionString(), Status.BAD_REQUEST);
         }
 
-        String serializedNewConfig = serializeProjectConfiguration(newConfig);
+        // Serialize new configuration and check if it differs from the old
+        byte[] serializedNewConfig = serializeProjectConfiguration(newConfig);
+        if ((configFile != null) && Arrays.equals(serializedNewConfig, configFile.getContentAsBytes()))
+        {
+            // new configuration file is the same as the old
+            return null;
+        }
+
+        List<ProjectFileOperation> operations = Lists.mutable.empty();
         operations.add((configFile == null) ? ProjectFileOperation.addFile(PROJECT_CONFIG_PATH, serializedNewConfig) : ProjectFileOperation.modifyFile(PROJECT_CONFIG_PATH, serializedNewConfig));
 
         ProjectStructure currentProjectStructure = getProjectStructure(currentConfig, updateBuilder.getProjectStructurePlatformExtensions());
@@ -663,78 +542,198 @@ public abstract class ProjectStructure
         }
 
         // Collect any further update operations
-        newProjectStructure.collectUpdateProjectConfigurationOperations(currentProjectStructure, fileAccessContext, projectFileAccessProvider::getFileAccessContext, operations::add);
+        if (newConfig.getProjectType() != ProjectType.EMBEDDED)
+        {
+            newProjectStructure.collectUpdateProjectConfigurationOperations(currentProjectStructure, fileAccessContext, operations::add);
+        }
+
+        // Call legacy method
+        newProjectStructure.collectUpdateProjectConfigurationOperations(currentProjectStructure, fileAccessContext, (x, y) ->
+        {
+            throw new UnsupportedOperationException();
+        }, operations::add);
 
         // Collect update operations from any project structure extension
-        if (updateBuilder.hasProjectStructureExtensionProvider() && (newConfig.getProjectStructureVersion().getExtensionVersion() != null))
+        if (newConfig.getProjectStructureVersion().getExtensionVersion() != null)
         {
-            ProjectStructureExtension projectStructureExtension = updateBuilder.getProjectStructureExtensionProvider().getProjectStructureExtension(newConfig.getProjectStructureVersion().getVersion(), newConfig.getProjectStructureVersion().getExtensionVersion());
-            projectStructureExtension.collectUpdateProjectConfigurationOperations(currentConfig, newConfig, fileAccessContext, operations::add);
+            ProjectStructureExtensionProvider extensionProvider = updateBuilder.getProjectStructureExtensionProvider();
+            if (extensionProvider != null)
+            {
+                ProjectStructureExtension projectStructureExtension = extensionProvider.getProjectStructureExtension(newConfig.getProjectStructureVersion().getVersion(), newConfig.getProjectStructureVersion().getExtensionVersion());
+                projectStructureExtension.collectUpdateProjectConfigurationOperations(currentConfig, newConfig, fileAccessContext, operations::add);
+            }
         }
 
         // Submit changes
         return projectFileAccessProvider.getFileModificationContext(projectId, workspaceId, workspaceType, workspaceAccessType, revisionId).submit(updateBuilder.getMessage(), operations);
     }
 
-    private static void updateOrAddDependencies(Set<ProjectDependency> toUpdateProjectDependencies, ProjectFileAccessProvider projectFileAccessProvider, Set<ProjectDependency> projectDependencies, boolean purgeOldDependency)
+    private static void validateProjectConfiguration(ProjectConfiguration config)
     {
-        List<ProjectDependency> unknownDependencies = Lists.mutable.empty();
-        SortedMap<ProjectDependency, Exception> accessExceptions = new TreeMap<>();
-        for (ProjectDependency projectDependency : toUpdateProjectDependencies)
+        // Group id
+        if (!isValidGroupId(config.getGroupId()))
         {
-            if (ProjectDependency.isLegacyProjectDependency(projectDependency))
+            throw new LegendSDLCServerException("Invalid groupId: " + config.getGroupId(), Status.BAD_REQUEST);
+        }
+
+        // Artifact id
+        if (!isValidArtifactId(config.getArtifactId()))
+        {
+            throw new LegendSDLCServerException("Invalid artifactId: " + config.getArtifactId() + ". ArtifactId must follow pattern that starts with a lowercase letter and can include lowercase letters, digits, underscores, and hyphens between segments.", Status.BAD_REQUEST);
+        }
+
+        // Project type
+        if (!isValidProjectType(config.getProjectType()))
+        {
+            throw new LegendSDLCServerException("Invalid projectType: " + config.getProjectType(), Status.BAD_REQUEST);
+        }
+
+        // Platform configurations
+        if (config.getPlatformConfigurations() != null)
+        {
+            MutableSet<String> platformNames = Sets.mutable.empty();
+            MutableSet<String> platformNameConflicts = LazyIterate.collect(config.getPlatformConfigurations(), PlatformConfiguration::getName).reject(platformNames::add, Sets.mutable.empty());
+            if (platformNameConflicts.notEmpty())
             {
-                try
-                {
-                    ProjectConfiguration dependencyConfig = getProjectConfiguration(projectFileAccessProvider.getFileAccessContext(projectDependency.getProjectId(), projectDependency.getVersionId()));
-                    if (dependencyConfig == null || dependencyConfig.getArtifactId() == null || dependencyConfig.getGroupId() == null)
-                    {
-                        unknownDependencies.add(projectDependency);
-                    }
-                    else
-                    {
-                        if (purgeOldDependency)
-                        {
-                            projectDependencies.remove(projectDependency);
-                        }
-                        projectDependencies.add(ProjectDependency.newProjectDependency(dependencyConfig.getGroupId() + ":" + dependencyConfig.getArtifactId(), projectDependency.getVersionId()));
-                    }
-                }
-                catch (Exception e)
-                {
-                    accessExceptions.put(projectDependency, e);
-                }
+                throw new LegendSDLCServerException(platformNameConflicts.toSortedList().makeString("Platform configuration conflicts: \"", "\", \"", "\""), Status.BAD_REQUEST);
+            }
+        }
+
+        // Metamodel dependencies
+        validateMetamodelDependencies(config.getMetamodelDependencies());
+
+        // Artifact generations
+        validateArtifactGenerations(config.getArtifactGenerations());
+    }
+
+    private static void validateMetamodelDependencies(List<MetamodelDependency> metamodelDependencies)
+    {
+        MutableList<MetamodelDependency> unknownDependencies = ListIterate.reject(metamodelDependencies, ProjectStructure::isKnownMetamodel);
+        if (unknownDependencies.notEmpty())
+        {
+            StringBuilder builder = new StringBuilder("There were issues with one or more added metamodel dependencies");
+            builder.append("; unknown ").append((unknownDependencies.size() == 1) ? "dependency" : "dependencies").append(": ");
+            unknownDependencies.sort(getMetamodelDependencyComparator());
+            unknownDependencies.forEach(d -> d.appendDependencyString((d == unknownDependencies.get(0)) ? builder : builder.append(", ")));
+            throw new LegendSDLCServerException(builder.toString(), Status.BAD_REQUEST);
+        }
+        validateDependencyConflicts(
+                metamodelDependencies,
+                MetamodelDependency::getMetamodel,
+                (id, deps) -> (deps.size() > 1) ? deps.stream().collect(StringBuilder::new, (builder, dep) -> dep.appendVersionIdString(builder.append((builder.length() == 0) ? "multiple versions not allowed: " : ", ")), StringBuilder::append).toString() : null,
+                "metamodels");
+    }
+
+    private static void validateArtifactGenerations(List<ArtifactGeneration> artifactGenerations)
+    {
+        String initString = "There were issues with one or more added artifact generations";
+        StringBuilder builder = null;
+
+        if (Iterate.anySatisfy(artifactGenerations, g -> FORBIDDEN_ARTIFACT_GENERATION_TYPES.contains(g.getType())))
+        {
+            builder = new StringBuilder(initString);
+            LazyIterate.collect(FORBIDDEN_ARTIFACT_GENERATION_TYPES, ArtifactType::getLabel)
+                    .toSortedList()
+                    .appendString(builder, ": generation types ", ", ", " are not allowed");
+        }
+
+        MutableSet<String> artifactGenerationNames = Sets.mutable.empty();
+        MutableSet<String> artifactGenerationConflicts = LazyIterate.collect(artifactGenerations, ArtifactGeneration::getName).reject(artifactGenerationNames::add, Sets.mutable.empty());
+        if (artifactGenerationConflicts.notEmpty())
+        {
+            if (builder == null)
+            {
+                builder = new StringBuilder(initString).append(": ");
             }
             else
             {
-                projectDependencies.add(ProjectDependency.newProjectDependency(projectDependency.getProjectId(), projectDependency.getVersionId()));
+                builder.append("; ");
             }
+            artifactGenerationConflicts.toSortedList().appendString(builder, "duplicate generations: \"", "\", \"", "\"");
         }
-        if (!unknownDependencies.isEmpty() || !accessExceptions.isEmpty())
+
+        if (builder != null)
         {
-            StringBuilder builder = new StringBuilder("There were issues with one or more added project dependencies");
-            if (!unknownDependencies.isEmpty())
-            {
-                builder.append("; unknown ").append((unknownDependencies.size() == 1) ? "dependency" : "dependencies").append(": ");
-                unknownDependencies.sort(Comparator.naturalOrder());
-                unknownDependencies.forEach(d -> d.appendDependencyString((d == unknownDependencies.get(0)) ? builder : builder.append(", ")));
-            }
-            if (!accessExceptions.isEmpty())
-            {
-                builder.append("; access ").append((accessExceptions.size() == 1) ? "exception" : "exceptions").append(": ");
-                ProjectDependency first = accessExceptions.firstKey();
-                accessExceptions.forEach((d, e) -> d.appendDependencyString((d == first) ? builder : builder.append(", ")).append(" (").append(e.getMessage()).append(')'));
-            }
             throw new LegendSDLCServerException(builder.toString(), Status.BAD_REQUEST);
         }
     }
 
-
-    protected static <T extends Dependency & Comparable<? super T>, K extends Comparable<? super K>> void validateDependencyConflicts(Collection<T> dependencies, Function<? super T, ? extends K> indexKeyFn, BiFunction<? super K, ? super SortedSet<T>, String> conflictFn, String description)
+    protected static boolean isLegacyProjectDependency(ProjectDependency projectDependency)
     {
-        Map<K, SortedSet<T>> index = dependencies.stream().collect(Collectors.groupingBy(indexKeyFn, Collectors.toCollection(TreeSet::new)));
+        return (projectDependency != null) &&
+                (projectDependency.getProjectId() != null) &&
+                (projectDependency.getProjectId().indexOf(':') == -1);
+    }
+
+    private static ProjectConfiguration updateLegacyDependencies(ProjectConfiguration config, ProjectFileAccessProvider projectFileAccessProvider)
+    {
+        MutableList<ProjectDependency> legacyProjectDependencies = Iterate.select(config.getProjectDependencies(), ProjectStructure::isLegacyProjectDependency, Lists.mutable.empty());
+        if (legacyProjectDependencies.isEmpty())
+        {
+            return config;
+        }
+
+        MutableSet<ProjectDependency> projectDependencies = Sets.mutable.withAll(config.getProjectDependencies());
+        MutableList<ProjectDependency> unknownDependencies = Lists.mutable.empty();
+        MutableList<Pair<ProjectDependency, Exception>> accessExceptions = Lists.mutable.empty();
+        legacyProjectDependencies.forEach(dep ->
+        {
+            try
+            {
+                ProjectConfiguration dependencyConfig = getProjectConfiguration(projectFileAccessProvider.getFileAccessContext(dep.getProjectId(), VersionId.parseVersionId(dep.getVersionId())));
+                if ((dependencyConfig == null) || (dependencyConfig.getArtifactId() == null) || (dependencyConfig.getGroupId() == null))
+                {
+                    unknownDependencies.add(dep);
+                }
+                else
+                {
+                    projectDependencies.remove(dep);
+                    projectDependencies.add(ProjectDependency.newProjectDependency(dependencyConfig.getGroupId() + ":" + dependencyConfig.getArtifactId(), dep.getVersionId()));
+                }
+            }
+            catch (Exception e)
+            {
+                accessExceptions.add(Tuples.pair(dep, e));
+            }
+        });
+        Comparator<ProjectDependency> comparator = getProjectDependencyComparator();
+        if (unknownDependencies.notEmpty() || accessExceptions.notEmpty())
+        {
+            StringBuilder builder = new StringBuilder("There were issues with one or more legacy project dependencies");
+            if (unknownDependencies.notEmpty())
+            {
+                builder.append("; unknown ").append((unknownDependencies.size() == 1) ? "dependency" : "dependencies").append(": ");
+                unknownDependencies.sortThis(comparator).forEach(d -> d.appendDependencyString((d == unknownDependencies.get(0)) ? builder : builder.append(", ")));
+            }
+            if (accessExceptions.notEmpty())
+            {
+                builder.append("; access ").append((accessExceptions.size() == 1) ? "exception" : "exceptions").append(": ");
+                accessExceptions.sortThis(Comparator.comparing(Pair::getOne, comparator)).forEach(p -> p.getOne().appendDependencyString((p == accessExceptions.get(0)) ? builder : builder.append(", ")).append(" (").append(p.getTwo().getMessage()).append(')'));
+            }
+            throw new LegendSDLCServerException(builder.toString(), Status.BAD_REQUEST);
+        }
+
+        SimpleProjectConfiguration newConfig = new SimpleProjectConfiguration(config);
+        newConfig.setProjectDependencies(projectDependencies.toSortedList(comparator));
+        return newConfig;
+    }
+
+    protected static Comparator<ProjectDependency> getProjectDependencyComparator()
+    {
+        return ProjectDependency.getDefaultComparator();
+    }
+
+    protected static Comparator<MetamodelDependency> getMetamodelDependencyComparator()
+    {
+        return MetamodelDependency.getDefaultComparator();
+    }
+
+    protected static <T, K extends Comparable<? super K>> void validateDependencyConflicts(Collection<T> dependencies, Function<? super T, ? extends K> indexKeyFn, BiFunction<? super K, ? super Set<T>, String> conflictFn, String description)
+    {
+        MutableMap<K, MutableSet<T>> index = Maps.mutable.empty();
+        dependencies.forEach(dep -> index.getIfAbsentPut(indexKeyFn.apply(dep), Sets.mutable::empty).add(dep));
         SortedMap<K, String> conflictMessages = new TreeMap<>();
-        index.forEach((key, deps) ->
+        index.forEachKeyValue((key, deps) ->
         {
             String conflictMessage = conflictFn.apply(key, deps);
             if (conflictMessage != null)
@@ -752,15 +751,7 @@ public abstract class ProjectStructure
 
     private static void appendPackageablePathAsFilePath(StringBuilder builder, String packageablePath)
     {
-        int current = 0;
-        int next = packageablePath.indexOf(PACKAGE_SEPARATOR);
-        while (next != -1)
-        {
-            builder.append('/').append(packageablePath, current, next);
-            current = next + 2;
-            next = packageablePath.indexOf(PACKAGE_SEPARATOR, current);
-        }
-        builder.append('/').append(packageablePath, current, packageablePath.length());
+        EntityPaths.forEachPathElement(packageablePath, elt -> builder.append('/').append(elt));
     }
 
     private static void appendFilePathAsPackageablePath(StringBuilder builder, String filePath, int start, int end)
@@ -769,29 +760,11 @@ public abstract class ProjectStructure
         int next = filePath.indexOf('/', current);
         while ((next != -1) && (next < end))
         {
-            builder.append(filePath, current, next).append(PACKAGE_SEPARATOR);
+            builder.append(filePath, current, next).append(EntityPaths.PACKAGE_SEPARATOR);
             current = next + 1;
             next = filePath.indexOf('/', current);
         }
         builder.append(filePath, current, end);
-    }
-
-    private static String serializeProjectConfiguration(ProjectConfiguration projectConfiguration)
-    {
-        try
-        {
-            return JSON.writeValueAsString(projectConfiguration);
-        }
-        catch (Exception e)
-        {
-            StringBuilder message = new StringBuilder("Error creating project configuration file");
-            String errorMessage = e.getMessage();
-            if (errorMessage != null)
-            {
-                message.append(": ").append(errorMessage);
-            }
-            throw new RuntimeException(message.toString(), e);
-        }
     }
 
     private static ProjectFile getProjectConfigurationFile(FileAccessContext accessContext)
@@ -799,21 +772,27 @@ public abstract class ProjectStructure
         return accessContext.getFile(PROJECT_CONFIG_PATH);
     }
 
-    private static ProjectConfiguration readProjectConfiguration(ProjectFile file)
+    private static byte[] serializeProjectConfiguration(ProjectConfiguration projectConfiguration)
     {
-        try (Reader reader = file.getContentAsReader())
+        try
         {
-            return JSON.readValue(reader, SimpleProjectConfiguration.class);
+            return JSON.writeValueAsBytes(projectConfiguration);
         }
         catch (Exception e)
         {
-            StringBuilder message = new StringBuilder("Error reading project configuration");
-            String errorMessage = e.getMessage();
-            if (errorMessage != null)
-            {
-                message.append(": ").append(errorMessage);
-            }
-            throw new RuntimeException(message.toString(), e);
+            throw new RuntimeException(StringTools.appendThrowableMessageIfPresent("Error creating project configuration file", e), e);
+        }
+    }
+
+    private static ProjectConfiguration readProjectConfiguration(ProjectFile file)
+    {
+        try (InputStream stream = file.getContentAsInputStream())
+        {
+            return JSON.readValue(stream, SimpleProjectConfiguration.class);
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException(StringTools.appendThrowableMessageIfPresent("Error reading project configuration", e), e);
         }
     }
 
@@ -849,33 +828,6 @@ public abstract class ProjectStructure
     {
         // None by default
         return Collections.emptyList();
-    }
-
-    private static void validateArtifactGenerations(Map<String, ArtifactGeneration> artifactGenerations, List<ArtifactGeneration> artifactGenerationToAdd)
-    {
-        boolean isValid = true;
-        StringBuilder builder = new StringBuilder("There were issues with one or more added artifact generations");
-
-        if (artifactGenerationToAdd.stream().map(ArtifactGeneration::getType).anyMatch(FORBIDDEN_ARTIFACT_GENERATION_TYPES::contains))
-        {
-            isValid = false;
-            builder.append(FORBIDDEN_ARTIFACT_GENERATION_TYPES.stream().map(ArtifactType::getLabel).sorted().collect(Collectors.joining(", ", ": generation types ", " are not allowed")));
-        }
-        if (artifactGenerationToAdd.stream().map(ArtifactGeneration::getName).anyMatch(artifactGenerations::containsKey))
-        {
-            isValid = false;
-            builder.append(": trying to add duplicate artifact generations");
-        }
-        if (artifactGenerationToAdd.stream().map(ArtifactGeneration::getName).distinct().count() != artifactGenerationToAdd.size())
-        {
-            isValid = false;
-            builder.append(": generations to add contain duplicates");
-        }
-
-        if (!isValid)
-        {
-            throw new LegendSDLCServerException(builder.toString(), Status.BAD_REQUEST);
-        }
     }
 
     protected static EntitySourceDirectory newEntitySourceDirectory(String directory, EntitySerializer serializer)
@@ -1052,6 +1004,214 @@ public abstract class ProjectStructure
         public Entity deserialize(byte[] content) throws IOException
         {
             return this.serializer.deserialize(content);
+        }
+    }
+
+    public static UpdateBuilder newUpdateBuilder(ProjectFileAccessProvider projectFileAccessProvider, String projectId)
+    {
+        return newUpdateBuilder(projectFileAccessProvider, projectId, null);
+    }
+
+    public static UpdateBuilder newUpdateBuilder(ProjectFileAccessProvider projectFileAccessProvider, String projectId, ProjectConfigurationUpdater configUpdater)
+    {
+        return new UpdateBuilder(projectFileAccessProvider, projectId, configUpdater);
+    }
+
+    public static class UpdateBuilder
+    {
+        private final ProjectFileAccessProvider projectFileAccessProvider;
+        private final String projectId;
+        private SourceSpecification sourceSpecification;
+        private ProjectConfigurationUpdater configUpdater;
+        private String revisionId;
+        private String message;
+        private ProjectStructureExtensionProvider projectStructureExtensionProvider;
+        private ProjectStructurePlatformExtensions projectStructurePlatformExtensions;
+
+        private UpdateBuilder(ProjectFileAccessProvider projectFileAccessProvider, String projectId, ProjectConfigurationUpdater configUpdater)
+        {
+            this.projectFileAccessProvider = projectFileAccessProvider;
+            this.projectId = projectId;
+            this.sourceSpecification = SourceSpecification.projectSourceSpecification();
+            this.configUpdater = (configUpdater == null) ? getDefaultProjectConfigurationUpdater() : configUpdater;
+        }
+
+        // Project id
+
+        public String getProjectId()
+        {
+            return this.projectId;
+        }
+
+        public SourceSpecification getSourceSpecification()
+        {
+            return this.sourceSpecification;
+        }
+
+        // Project file access provider
+
+        public ProjectFileAccessProvider getProjectFileAccessProvider()
+        {
+            return this.projectFileAccessProvider;
+        }
+
+        // Project configuration updater
+
+        public ProjectConfigurationUpdater getProjectConfigurationUpdater()
+        {
+            return this.configUpdater;
+        }
+
+        public void setProjectConfigurationUpdater(ProjectConfigurationUpdater updater)
+        {
+            this.configUpdater = (updater == null) ? getDefaultProjectConfigurationUpdater() : updater;
+        }
+
+        public UpdateBuilder withProjectConfigurationUpdater(ProjectConfigurationUpdater updater)
+        {
+            setProjectConfigurationUpdater(updater);
+            return this;
+        }
+
+        private ProjectConfigurationUpdater getDefaultProjectConfigurationUpdater()
+        {
+            return ProjectConfigurationUpdater.newUpdater().withProjectId(this.projectId);
+        }
+
+        // Source specification
+
+        public void setSourceSpecification(SourceSpecification sourceSpec)
+        {
+            this.sourceSpecification = sourceSpec;
+        }
+
+        public UpdateBuilder withSourceSpecification(SourceSpecification sourceSpec)
+        {
+            setSourceSpecification(sourceSpec);
+            return this;
+        }
+
+        public UpdateBuilder withWorkspace(WorkspaceSpecification workspaceSpec)
+        {
+            return withSourceSpecification(SourceSpecification.workspaceSourceSpecification(workspaceSpec));
+        }
+
+        @Deprecated
+        public UpdateBuilder withWorkspace(SourceSpecification sourceSpecification)
+        {
+            return withSourceSpecification(sourceSpecification);
+        }
+
+        // Revision id
+
+        public String getRevisionId()
+        {
+            return this.revisionId;
+        }
+
+        public void setRevisionId(String revisionId)
+        {
+            this.revisionId = revisionId;
+        }
+
+        public UpdateBuilder withRevisionId(String revisionId)
+        {
+            setRevisionId(revisionId);
+            return this;
+        }
+
+        // Message
+
+        public String getMessage()
+        {
+            return this.message;
+        }
+
+        public void setMessage(String message)
+        {
+            this.message = message;
+        }
+
+        public UpdateBuilder withMessage(String message)
+        {
+            setMessage(message);
+            return this;
+        }
+
+        // Project structure extension provider
+
+        public ProjectStructureExtensionProvider getProjectStructureExtensionProvider()
+        {
+            return this.projectStructureExtensionProvider;
+        }
+
+        public void setProjectStructureExtensionProvider(ProjectStructureExtensionProvider projectStructureExtensionProvider)
+        {
+            this.projectStructureExtensionProvider = projectStructureExtensionProvider;
+        }
+
+        public UpdateBuilder withProjectStructureExtensionProvider(ProjectStructureExtensionProvider projectStructureExtensionProvider)
+        {
+            setProjectStructureExtensionProvider(projectStructureExtensionProvider);
+            return this;
+        }
+
+        // Project structure platform extensions
+
+        public ProjectStructurePlatformExtensions getProjectStructurePlatformExtensions()
+        {
+            return this.projectStructurePlatformExtensions;
+        }
+
+        public void setProjectStructurePlatformExtensions(ProjectStructurePlatformExtensions projectStructurePlatformExtensions)
+        {
+            this.projectStructurePlatformExtensions = projectStructurePlatformExtensions;
+        }
+
+        public UpdateBuilder withProjectStructurePlatformExtensions(ProjectStructurePlatformExtensions projectStructurePlatformExtensions)
+        {
+            setProjectStructurePlatformExtensions(projectStructurePlatformExtensions);
+            return this;
+        }
+
+        // Update
+
+        public Revision update()
+        {
+            return update(true);
+        }
+
+        public Revision build()
+        {
+            if (this.configUpdater.getProjectStructureVersion() == null)
+            {
+                this.configUpdater.setProjectStructureVersion(getLatestProjectStructureVersion());
+            }
+            return update(false);
+        }
+
+        private Revision update(boolean requireRevisionId)
+        {
+            if (this.projectId != null)
+            {
+                if (this.configUpdater.getProjectId() == null)
+                {
+                    this.configUpdater.setProjectId(this.projectId);
+                }
+                else if (!this.projectId.equals(this.configUpdater.getProjectId()))
+                {
+                    throw new IllegalArgumentException("Conflicting project ids: \"" + this.projectId + "\" vs \"" + this.configUpdater.getProjectId() + "\"");
+                }
+            }
+            else if (this.configUpdater.getProjectId() == null)
+            {
+                throw new IllegalArgumentException("No project id specified");
+            }
+            if (this.projectStructureExtensionProvider == null && this.configUpdater.getProjectStructureExtensionVersion() != null)
+            {
+                    throw new IllegalArgumentException("Project structure extension version specified (" + this.configUpdater.getProjectStructureExtensionVersion() + ") with no project structure extension provider");
+            }
+            return updateProjectConfiguration(this, requireRevisionId);
         }
     }
 }

@@ -19,9 +19,9 @@ import org.eclipse.collections.api.map.MapIterable;
 import org.eclipse.collections.api.map.MutableMap;
 import org.eclipse.collections.impl.utility.LazyIterate;
 import org.finos.legend.engine.language.pure.compiler.toPureGraph.PureModel;
+import org.finos.legend.engine.protocol.pure.m3.PackageableElement;
 import org.finos.legend.engine.protocol.pure.v1.PureProtocolObjectMapperFactory;
 import org.finos.legend.engine.protocol.pure.v1.model.context.PureModelContextData;
-import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.PackageableElement;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.fileGeneration.FileGenerationSpecification;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.generationSpecification.GenerationSpecification;
 import org.finos.legend.engine.shared.core.deployment.DeploymentMode;
@@ -57,7 +57,7 @@ public class TestFileGenerationFactory
         fileGenerationSpecification.type = UNSUPPORTED;
         fileGenerationSpecification.name = "MyFileGeneration";
         fileGenerationSpecification._package = "package";
-        FileGenerator fileGenerator = FileGenerator.newGenerator(new PureModel(PureModelContextData.newBuilder().build(), null, DeploymentMode.TEST), fileGenerationSpecification);
+        FileGenerator fileGenerator = FileGenerator.newGenerator(new PureModel(PureModelContextData.newBuilder().build(), null, DeploymentMode.PROD), fileGenerationSpecification);
         EngineException handlerException = Assert.assertThrows(EngineException.class, fileGenerator::generate);
         Assert.assertEquals("Can't find a handler for the file generation type '" + UNSUPPORTED.toLowerCase() + "'", handlerException.getMessage());
     }
@@ -76,7 +76,7 @@ public class TestFileGenerationFactory
     {
         PureModelContextData pureModelContextData = getPureModelContextDataFromPath("FileGenerationFactoryTestData.json");
         MapIterable<String, FileGenerationSpecification> specifications = LazyIterate.selectInstancesOf(pureModelContextData.getElements(), FileGenerationSpecification.class).groupByUniqueKey(PackageableElement::getPath);
-        FileGenerator fileGenerator = FileGenerator.newGenerator(new PureModel(pureModelContextData, null, DeploymentMode.TEST), specifications.get("generation::MyAvro"));
+        FileGenerator fileGenerator = FileGenerator.newGenerator(new PureModel(pureModelContextData, null, DeploymentMode.PROD), specifications.get("generation::MyAvro"));
         List<GenerationOutput> avroResult = fileGenerator.generate();
         testAvroOutput(avroResult);
     }
@@ -109,10 +109,6 @@ public class TestFileGenerationFactory
                 "  string first_name = 1;\n" +
                 "  string last_name = 2;\n" +
                 "}", protobufOutputs.get("model.proto").getContent());
-        // rosetta
-        List<GenerationOutput> rosettaResult = result.get(specifications.get("generation::MyRosetta"));
-        Assert.assertEquals(1, rosettaResult.size());
-        Assert.assertEquals("rosettaTypes.txt", rosettaResult.get(0).getFileName());
     }
 
     @Test

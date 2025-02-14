@@ -1,4 +1,4 @@
-// Copyright 2020 Goldman Sachs
+// Copyright 2023 Goldman Sachs
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ import io.swagger.annotations.ApiParam;
 import org.finos.legend.sdlc.server.auth.Token;
 import org.finos.legend.sdlc.server.auth.Token.TokenReader;
 import org.finos.legend.sdlc.server.error.LegendSDLCServerException;
-import org.finos.legend.sdlc.server.gitlab.auth.GitLabAuthAccessException;
 import org.finos.legend.sdlc.server.gitlab.auth.GitLabUserContext;
 import org.finos.legend.sdlc.server.gitlab.tools.GitLabApiTools;
 import org.finos.legend.sdlc.server.resources.BaseResource;
@@ -26,6 +25,9 @@ import org.finos.legend.sdlc.server.tools.StringTools;
 import org.gitlab4j.api.GitLabApi;
 import org.gitlab4j.api.GitLabApiException;
 
+import java.util.Collections;
+import java.util.Set;
+import java.util.regex.Pattern;
 import javax.inject.Inject;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
@@ -33,15 +35,11 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response.Status;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.regex.Pattern;
 
 @Path("/auth")
 public class GitLabAuthResource extends BaseResource
 {
-    private static final Pattern TERMS_OF_SERVICE_MESSAGE_PATTERN = Pattern.compile("terms\\s+of\\s+service", Pattern.CASE_INSENSITIVE);
+    private static final Pattern TERMS_OF_SERVICE_MESSAGE_PATTERN = Pattern.compile("terms\\s++of\\s++service", Pattern.CASE_INSENSITIVE);
 
     private final GitLabUserContext userContext;
 
@@ -60,32 +58,9 @@ public class GitLabAuthResource extends BaseResource
     }
 
     @GET
-    @Path("authorized")
-    @Produces(MediaType.APPLICATION_JSON)
-    public boolean isAuthorized(
-        // TO BE DEPRECATED (in Swagger 3, we can use the `deprecated` flag)
-        @QueryParam("mode") @ApiParam(hidden = true, value = "DEPRECATED - this parameter will be ignored") Set<String> modes)
-    {
-        return executeWithLogging("checking authorization", () ->
-        {
-            try
-            {
-                return this.userContext.isUserAuthorized();
-            }
-            catch (GitLabAuthAccessException e)
-            {
-                getLogger().error("Access exception occurred while checking authorization", e);
-                return false;
-            }
-        });
-    }
-
-    @GET
     @Path("authorize")
     @Produces(MediaType.TEXT_HTML)
-    public String authorize(@QueryParam("redirect_uri") @ApiParam("URI to redirect to when authorization is complete") String redirectUri,
-                            // TO BE DEPRECATED (in Swagger 3, we can use the `deprecated` flag)
-                            @QueryParam("mode") @ApiParam(hidden = true, value = "DEPRECATED - this parameter will be ignored") Set<String> modes)
+    public String authorize(@QueryParam("redirect_uri") @ApiParam("URI to redirect to when authorization is complete") String redirectUri)
     {
         return executeWithLogging("authorizing", () ->
         {
@@ -102,9 +77,7 @@ public class GitLabAuthResource extends BaseResource
     @Path("termsOfServiceAcceptance")
     @Produces(MediaType.APPLICATION_JSON)
     // NOTE: we have to return a set for backward compatibility reason
-    public Set<String> termsOfServiceAcceptance(
-        // TO BE DEPRECATED (in Swagger 3, we can use the `deprecated` flag)
-        @QueryParam("mode") @ApiParam(hidden = true, value = "DEPRECATED - this parameter will be ignored") Set<String> modes)
+    public Set<String> termsOfServiceAcceptance()
     {
         return executeWithLogging("checking acceptance of terms of service", () ->
         {
